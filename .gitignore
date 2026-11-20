@@ -4,3 +4,8 @@ dist/
 *.tsbuildinfo
 src-tauri/target/
 .env
+local-print-service/.venv/
+local-print-service/__pycache__/
+local-print-service/tests/__pycache__/
+local-print-service/.pytest_cache/
+local-print-service/profiles/

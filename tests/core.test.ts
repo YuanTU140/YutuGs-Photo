@@ -149,7 +149,7 @@ describe('even object distribution command', () => {
     expect(bounds[1].minX - bounds[0].maxX).toBeCloseTo(bounds[2].minX - bounds[1].maxX);
     expect(bounds[2].maxX).toBe(180);
     expect(undo(distributed).document.objects.b.transform[4]).toBe(0);
-    expect(redo(undo(distributed)).document.objects.b.transform[4]).not.toBe(0);
+    expect(getObjectBounds(redo(undo(distributed)).document.objects.b)!.minX).toBeGreaterThan(0);
   });
   it('distributes objects vertically while preserving the outer bounds', () => {
     const initial = createDocument();
@@ -200,27 +200,14 @@ describe('restored layer, guide and raster-result commands', () => {
 import { booleanPath } from '../src/core/pathBoolean';
 describe('editable convex vector pathfinder', () => {
   const makeRect=(id:string,x:number,y:number,w:number,h:number)=>({id,name:id,kind:'rect' as const,geometry:{x,y,width:w,height:h},transform:[1,0,0,1,0,0] as [number,number,number,number,number,number],opacity:1,visible:true,locked:false,layerId:'layer_1',fill:'#222',stroke:null,strokeWidth:0});
-  
+  const pathArea=(geometry:import('../src/core/model').VectorPath)=>{let area=0;for(let i=0;i<geometry.nodes.length;i++){const a=geometry.nodes[i].anchor,b=geometry.nodes[(i+1)%geometry.nodes.length].anchor;area+=a.x*b.y-b.x*a.y;}return Math.abs(area/2);};
   it('returns editable path geometry for union, subtract and intersection',()=>{
-    const a=makeRect('a',0,0,100,100), b=makeRect('b',50,0,100,100);
-    
-    // 联合：两个矩形合并后，应该形成一个 150x100 的大多边形，锚点数通常为 8
-    const union = booleanPath(a,b,'union');
-    expect(union.nodes.length).toBeGreaterThanOrEqual(6);
-
-    // 差集 (a - b)：左侧剩下一个 50x100 的矩形
-    const subtract = booleanPath(a,b,'subtract');
-    expect(subtract.nodes.length).toBeGreaterThanOrEqual(4); // 矩形至少有4个角
-
-    // 交集：中间重叠部分，应该是一个 50x100 的矩形
-    const intersect = booleanPath(a,b,'intersect');
-    expect(intersect.nodes.length).toBeGreaterThanOrEqual(4); 
-
-    // 排除 (并集减去交集)：通常会生成两个分离的图形（由外轮廓包裹），节点数较多
-    const exclude = booleanPath(a,b,'exclude');
-    expect(exclude.nodes.length).toBeGreaterThanOrEqual(8);
+    const a=makeRect('a',0,0,100,100),b=makeRect('b',50,0,100,100);
+    const union=booleanPath(a,b,'union');expect(union.nodes.length).toBe(8);
+    const subtract=booleanPath(a,b,'subtract');expect(pathArea(subtract)).toBeCloseTo(5000);
+    const intersect=booleanPath(a,b,'intersect');expect(pathArea(intersect)).toBeCloseTo(5000);
+    const exclude=booleanPath(a,b,'exclude');expect(pathArea(exclude)).toBeCloseTo(10000);
   });
-
   it('rejects non-convex paths instead of silently generating incorrect geometry',()=>{
     const a=makeRect('a',0,0,10,10);const b={...makeRect('b',0,0,10,10),kind:'path' as const,geometry:{nodes:[{anchor:{x:0,y:0},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:10,y:0},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:5,y:5},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:10,y:10},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:0,y:10},inHandle:null,outHandle:null,kind:'corner' as const}],segments:[{type:'move' as const,to:0},{type:'line' as const,to:1},{type:'line' as const,to:2},{type:'line' as const,to:3},{type:'line' as const,to:4}],closed:true,fillRule:'nonzero' as const}};
     expect(()=>booleanPath(a,b,'intersect')).toThrow(/凸/);
@@ -249,5 +236,65 @@ describe('SVG vector brush, eraser mask and text style persistence',()=>{
     expect((reopened.objects.eraser_path as import('../src/core/model').VectorObject).compositeMode).toBe('erase');
     expect(((reopened.objects.eraser_path as import('../src/core/model').VectorObject).geometry as import('../src/core/model').VectorPath).nodes[0].outHandle).toEqual({x:10,y:0});
     expect((reopened.objects.styled_text as import('../src/core/model').VectorObject).geometry).toMatchObject({fontFamily:'Microsoft YaHei',fontWeight:'700',fontStyle:'italic'});
+  });
+});
+
+import { applyProjective, invertProjective, projectiveFromRectToQuad, multiplyProjective } from '../src/core/projective';
+
+describe('projective transform geometry', () => {
+  it('maps a rectangle to a perspective quadrilateral and inverts the mapping', () => {
+    const bounds = { x: 0, y: 0, width: 100, height: 60, minX: 0, minY: 0, maxX: 100, maxY: 60 };
+    const quad = [{x:8,y:4},{x:118,y:12},{x:96,y:78},{x:-4,y:58}] as const;
+    const matrix = projectiveFromRectToQuad(bounds, quad as any);
+    const source = [{x:0,y:0},{x:100,y:0},{x:100,y:60},{x:0,y:60}];
+    source.forEach((point,index) => {
+      const mapped = applyProjective(point,matrix);
+      expect(mapped.x).toBeCloseTo(quad[index].x,5);
+      expect(mapped.y).toBeCloseTo(quad[index].y,5);
+      const restored = applyProjective(mapped,invertProjective(matrix));
+      expect(restored.x).toBeCloseTo(point.x,5);
+      expect(restored.y).toBeCloseTo(point.y,5);
+    });
+  });
+  it('composes projective transforms in order', () => {
+    const bounds = { x: 0, y: 0, width: 10, height: 10, minX: 0, minY: 0, maxX: 10, maxY: 10 };
+    const first = projectiveFromRectToQuad(bounds,[{x:1,y:1},{x:12,y:0},{x:11,y:12},{x:0,y:10}]);
+    const second = projectiveFromRectToQuad(bounds,[{x:5,y:2},{x:15,y:3},{x:13,y:15},{x:4,y:13}]);
+    const point = {x:4,y:6};
+    const sequential = applyProjective(applyProjective(point,first),second);
+    const composed = applyProjective(point,multiplyProjective(second,first));
+    expect(composed.x).toBeCloseTo(sequential.x,6);
+    expect(composed.y).toBeCloseTo(sequential.y,6);
+  });
+});
+
+
+describe('projective object history and YGS persistence', () => {
+  it('stores projective transforms as undoable document edits', async () => {
+    const doc = createDocument('perspective');
+    const layerId = doc.layers[0].id;
+    const object = { id: 'projective_rect', name: '透视矩形', kind: 'rect' as const, geometry: {x:0,y:0,width:100,height:60}, transform: [1,0,0,1,0,0] as [number,number,number,number,number,number], opacity:1,visible:true,locked:false,layerId,fill:'#fff',stroke:null,strokeWidth:0 };
+    let state = dispatch(createHistory(doc), {type:'object.add',object});
+    const matrix = projectiveFromRectToQuad({x:0,y:0,width:100,height:60,minX:0,minY:0,maxX:100,maxY:60},[{x:10,y:5},{x:110,y:0},{x:90,y:70},{x:0,y:60}]);
+    state = dispatch(state,{type:'object.projective.batch',transforms:[{id:object.id,matrix}]});
+    expect(state.document.objects[object.id].projectiveTransform).toEqual(matrix);
+    const reopened = await decodeYgs(await encodeYgs(state.document));
+    expect(reopened.objects[object.id].projectiveTransform).toEqual(matrix);
+    expect(undo(state).document.objects[object.id].projectiveTransform).toBeUndefined();
+  });
+});
+
+describe('document ICC color-management metadata', () => {
+  it('stores output profile identity and print settings in YGS history', async () => {
+    const initial = createDocument('print-ready');
+    expect(initial.colorManagement?.workingRgbProfile).toContain('sRGB');
+    const updated = dispatch(createHistory(initial), { type: 'document.colorManagement.update', patch: {
+      outputCmykProfile: { name: 'Printer Coated Profile', sha256: 'a'.repeat(64) },
+      renderingIntent: 'perceptual', blackPointCompensation: false, totalInkLimit: 280,
+    }});
+    expect(updated.document.colorManagement?.outputCmykProfile?.sha256).toBe('a'.repeat(64));
+    const reopened = await decodeYgs(await encodeYgs(updated.document));
+    expect(reopened.colorManagement?.totalInkLimit).toBe(280);
+    expect(undo(updated).document.colorManagement?.outputCmykProfile).toBeNull();
   });
 });

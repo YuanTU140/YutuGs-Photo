@@ -1,5 +1,6 @@
 import type { Artboard, EditorObject, Id, Layer, RasterAsset, Guide, YgsDocument } from './model';
 import { alignedTransform, unionBounds, getObjectBounds, type AlignAxis } from './geometry';
+import { affineToProjective, multiplyProjective, invertProjective, identityProjective } from './projective';
 
 export type EditorCommand =
   | { type: 'object.add'; object: EditorObject }
@@ -7,8 +8,10 @@ export type EditorCommand =
   | { type: 'object.update'; id: Id; patch: Partial<Pick<import('./model').VectorObject, 'geometry'|'fill'|'stroke'|'strokeWidth'|'opacity'|'name'|'filter'|'compositeMode'>> }
   | { type: 'adjustment.add'; layerId: Id; adjustment: import('./model').Adjustment }
   | { type: 'adjustment.update'; layerId: Id; adjustmentId: Id; patch: Partial<Pick<import('./model').Adjustment, 'enabled'|'opacity'|'parameters'>> }
+  | { type: 'document.colorManagement.update'; patch: Partial<import('./model').ColorManagementSettings> }
   | { type: 'object.transform'; id: Id; matrix: EditorObject['transform'] }
   | { type: 'object.transform.batch'; transforms: Array<{ id: Id; matrix: EditorObject['transform'] }> }
+  | { type: 'object.projective.batch'; transforms: Array<{ id: Id; matrix: NonNullable<EditorObject['projectiveTransform']> }> }
   | { type: 'object.align'; ids: Id[]; axis: AlignAxis; relativeTo?: 'selection' | Id }
   | { type: 'object.distribute'; ids: Id[]; axis: 'horizontal' | 'vertical' }
   | { type: 'ai.result.add'; artboardId: Id; layer: Layer; asset: RasterAsset; object: EditorObject }
@@ -44,6 +47,10 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
       next.adjustments[command.layerId] = [...(next.adjustments[command.layerId] ?? []), structuredClone(command.adjustment)];
       break;
     }
+    case 'document.colorManagement.update': {
+      next.colorManagement = { workingRgbProfile: 'sRGB IEC61966-2.1', outputCmykProfile: null, renderingIntent: 'relative-colorimetric', blackPointCompensation: true, totalInkLimit: 300, ...(next.colorManagement ?? {}), ...structuredClone(command.patch) };
+      break;
+    }
     case 'adjustment.update': {
       const list = next.adjustments[command.layerId] ?? [];
       const item = list.find(value => value.id === command.adjustmentId);
@@ -75,6 +82,16 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
       }
       break;
     }
+    case 'object.projective.batch': {
+      for (const item of command.transforms) {
+        const object = next.objects[item.id];
+        if (!object) throw new Error(`Object not found: ${item.id}`);
+        if (!item.matrix.every(Number.isFinite)) throw new Error('Projective matrix contains non-finite values');
+        invertProjective(item.matrix);
+        object.projectiveTransform = [...item.matrix] as NonNullable<EditorObject['projectiveTransform']>;
+      }
+      break;
+    }
     case 'object.align': {
       if (command.ids.length < (command.relativeTo ? 1 : 2)) throw new Error('Selection is too small for this alignment operation');
       const selected = command.ids.map(id => next.objects[id]).filter((item): item is EditorObject => Boolean(item));
@@ -85,7 +102,7 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
         ? getObjectBounds(referenceObject)
         : unionBounds(selected.map(getObjectBounds).filter((b): b is NonNullable<typeof b> => Boolean(b)));
       if (!target) throw new Error('Selected objects have no measurable geometry');
-      for (const object of selected) object.transform = alignedTransform(object, target, command.axis);
+      for (const object of selected) { const aligned=alignedTransform(object,target,command.axis); const dx=aligned[4]-object.transform[4],dy=aligned[5]-object.transform[5]; object.projectiveTransform=multiplyProjective(affineToProjective([1,0,0,1,dx,dy]),object.projectiveTransform??identityProjective()); }
       break;
     }
     case 'object.distribute': {
@@ -109,9 +126,8 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
         const bounds = item.bounds!;
         const currentStart = horizontal ? bounds.minX : bounds.minY;
         const delta = cursor - currentStart;
-        const matrix = [...item.object.transform] as EditorObject['transform'];
-        if (horizontal) matrix[4] += delta; else matrix[5] += delta;
-        item.object.transform = matrix;
+
+        const translation:import('./model').Matrix=horizontal?[1,0,0,1,delta,0]:[1,0,0,1,0,delta];item.object.projectiveTransform=multiplyProjective(affineToProjective(translation),item.object.projectiveTransform??identityProjective());
         cursor += (horizontal ? bounds.width : bounds.height) + gap;
       }
       break;

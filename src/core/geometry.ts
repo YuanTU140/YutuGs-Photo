@@ -1,4 +1,5 @@
 import type { EditorObject, Matrix, Point, VectorObject } from './model';
+import { applyProjective, invertProjective } from './projective';
 
 export type Bounds = { x: number; y: number; width: number; height: number; minX: number; minY: number; maxX: number; maxY: number };
 const boundsFrom = (points: Point[]): Bounds | null => {
@@ -64,7 +65,7 @@ export function getLocalBounds(object: EditorObject): Bounds | null {
 }
 export function getObjectBounds(object: EditorObject): Bounds | null {
   const b=getLocalBounds(object); if(!b)return null;
-  return boundsFrom([{x:b.minX,y:b.minY},{x:b.maxX,y:b.minY},{x:b.maxX,y:b.maxY},{x:b.minX,y:b.maxY}].map(p=>applyMatrix(p,object.transform)));
+  return boundsFrom([{x:b.minX,y:b.minY},{x:b.maxX,y:b.minY},{x:b.maxX,y:b.maxY},{x:b.minX,y:b.maxY}].map(p=>{const affine=applyMatrix(p,object.transform);return object.projectiveTransform?applyProjective(affine,object.projectiveTransform):affine;}));
 }
 export function unionBounds(items: Bounds[]): Bounds | null {
   if(!items.length)return null;
@@ -81,7 +82,7 @@ export function alignedTransform(object:EditorObject, target:Bounds, axis:AlignA
 function distanceToSegment(p:Point,a:Point,b:Point):number { const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy; const t=l?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/l)):0; return Math.hypot(p.x-(a.x+t*dx),p.y-(a.y+t*dy)); }
 export function hitTestObject(object:EditorObject, point:Point, tolerance=5):boolean {
   if(!object.visible||object.locked)return false;
-  let local:Point; try{local=applyMatrix(point,invertMatrix(object.transform));}catch{return false;}
+  let local:Point; try{const unprojected=object.projectiveTransform?applyProjective(point,invertProjective(object.projectiveTransform)):point;local=applyMatrix(unprojected,invertMatrix(object.transform));}catch{return false;}
   const b=getLocalBounds(object); if(!b||local.x<b.minX-tolerance||local.x>b.maxX+tolerance||local.y<b.minY-tolerance||local.y>b.maxY+tolerance)return false;
   if(object.kind==='image')return true;
   const v=object as VectorObject;
