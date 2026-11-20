@@ -1,87 +1,58 @@
-# YutuGs-Photo — 全新重建工程
+# YutuGs-Photo
 
-**版本：1.0.0-alpha.6（独立版本线）**
+**版本：1.1.1-alpha**  
+**交付类型：完整源码替换包**
 
-本项目从空白工程重新构建。旧版 0.4.x 仅作为功能需求参考，不继承旧版 App.tsx、Canvas 2D 编辑逻辑或旧前端文档模型。
+本版本以 alpha.4 重建工程的持续演进代码线为基础，1.1.0-alpha 为上一版代码基线；0.4.9 仅作为旧版功能、菜单和交互行为对照，不作为新内核代码基线。本包为完整工程源码替换包，不是补丁包。
 
-## 当前已建立的基础
+## 1.1.1-alpha 本轮实际接入
 
-- Tauri 2 + React + TypeScript 全新桌面工程骨架。
-- YGS v2 规范文档模型：文档、画板、图层、对象、路径锚点/控制柄、栅格资产元数据、调整效果数据结构。
-- SVG 矢量显示器；当前工程没有 Canvas 2D 绘制代码。
-- 独立视口坐标换算与以鼠标锚点缩放算法。
-- Geometry Engine：仿射矩阵应用/求逆/组合、对象局部与世界边界框、三次 Bézier 曲线求值与极值、路径采样命中测试。
-- Selection Service：单选、追加选择、切换选择、点选命中、框选对象。
-- 对象对齐命令已接入命令/历史系统：支持左/中/右、上/中/下对齐，以及相对所选对象整体边界或参考对象对齐。
-- 基础命令分发与撤销/重做快照历史。
-- YGS v2 JSON envelope + SHA-256 完整性校验原型。
-- 多画板文档数据结构和画板新增命令（目前属性面板可列出画板；工作区尚未实现多画板并排显示、选择和拖动）。
+- 恢复完整顶部菜单组：文件、编辑、图像、图层、文字、对象、路径、选择、滤镜、视图、窗口、帮助。
+- 文件菜单：新建文档（可输入宽高和名称）、打开 YGS、保存 YGS、导入 SVG、导出 SVG、关闭文档、关闭全部。
+- 编辑菜单：撤销、重做、删除所选对象、全选；新建/打开/保存/全选快捷键 Ctrl+N/O/S/A。
+- 图像菜单：画布大小调整，调用文档 `artboard.resize` 命令并进入统一历史。
+- 图层/文字菜单：新建文字对象，文字作为独立矢量对象写入 YGS 文档。
+- 对象菜单：左对齐、水平居中、右对齐、水平/垂直等间距分布，受选择数量约束并进入统一历史。
+- SVG 导入：支持基础 rect、circle、ellipse、path（M/L/H/V/C/Q/Z 子集）和 text；对不支持的路径命令、transform、未知元素给出警告，不声称完整 SVG 规范兼容。
+- SVG 导出：导出当前画板中的矢量路径、矩形、椭圆和文字对象；当前不导出位图对象、滤镜、蒙版和多画板集合。
+- 菜单中尚无真实实现的操作会禁用并标注原因，不以空壳按钮冒充可用功能。
 
-## 明确尚未完成
+## 当前已有基础
 
-这仍是新项目的早期 Alpha 工程，不是可交付的完整 Photoshop/Illustrator 替代品。尚未实现：真实工具指针交互和选择框可视化、对象间距分布、完整 Bézier 节点编辑、路径布尔运算、位图像素处理引擎、滤镜/调整图层合成、PSD/AI/PDF 适配器、完整 YGS 二进制资产包、AI 五项能力接入主文档、全部菜单命令及 Windows 安装包。
+- Tauri 2 + React + TypeScript 桌面工程。
+- YGS v2 文档模型与 SHA-256 完整性校验原型；YGS 打开/保存往返。
+- SVG 矢量渲染；编辑流程不使用 Canvas 2D。
+- 对象几何、矩阵变换、Bézier 曲线、边界框与命中测试基础服务。
+- 选择、多选、框选、对象拖动、组缩放/旋转、方向键微移。
+- 对齐及水平/垂直等间距分布命令；统一命令历史支持撤销/重做。
+- Alt + 鼠标滚轮锚点缩放；鼠标中键、空格 + 鼠标左键/右键平移画布。
+- 多画板数据结构与新增画板命令（尚未实现多画板并排工作区）。
+- 原有品牌图标、启动图和初始化动画资源保留。
 
-当前 `object.align` 命令已接入几何服务，支持相对选择集边界或参考对象的六种对齐方式；对象间距分布仍未实现。栅格图像对象目前只定义数据结构，尚未接入图像资产显示管线。
+## 尚未完成（不得视为已实现）
 
-## 核心架构方向
+- 打开为、其他格式另存为、完整导入/导出、打印与打印预览。
+- 图像尺寸（位图重采样）；当前“画布大小”只调整画板尺寸，不改变对象坐标比例。
+- 完整图层新增/删除/分组、图层可见性/锁定交互。
+- Photoshop 式画笔、橡皮擦、钢笔抠图；Illustrator 式钢笔锚点/控制柄编辑。
+- CDR 风格滴管、油漆桶填充。
+- 真正可编辑路径布尔运算、路径查找器、黄金比例辅助线、标尺和参考线管理。
+- 多画板并排显示、独立选择/拖动/编辑。
+- 完整文字排版、字体属性面板和 Windows 系统字体选择。
+- 查找/替换、滤镜与调整图层合成。
+- 五项 AI 功能（图像修复、智能移除、智能扩展、AI 生图、超清放大）及 Provider 实际接入。
+- PSD、AI、EPS、CDR、PDF 等格式原生可编辑解析与往返；未完成前不宣称原生编辑支持。
+- 完整 YGS 资产包、版本迁移和崩溃恢复。
+- Windows x64 安装包、中文 NSIS 流程及真实桌面端验收。
 
-`YGS Document → Object/Layer/Artboard → Command/History → Geometry & Raster Services → SVG/WebGPU Renderer → Viewport`
+## 架构与硬性约束
 
-SVG 负责矢量显示；栅格处理计划采用独立像素缓冲区与 WebGPU/CPU 图像服务，不回退到 Canvas 2D。PhotoCraft / VectorCraft 不作为程序依赖。
+文档模型 → 对象/图层/画板 → 命令与历史 → 几何/独立栅格服务 → SVG/WebGPU 渲染。Canvas 2D（包括 `getContext('2d')`、`CanvasRenderingContext2D`、`Path2D`）不得进入编辑、绘制、擦除、合成或像素处理流程。位图处理应采用独立像素缓冲区与 WebGPU/CPU 图像服务。PhotoCraft / VectorCraft 不作为运行时依赖。
 
-## 开发环境
+## 本轮验证边界
 
-- Node.js 20+
-- Rust stable
-- Tauri 2 所需 Windows WebView2 / MSVC 构建工具链
+本轮已对 `src/io/svg.ts` 与核心模型执行 TypeScript 严格检查；核心命令也执行严格检查。当前环境未能安装完整 npm 依赖，因此完整 React 类型检查、Vitest、Vite 构建、Rust/Tauri 构建及 Windows 安装包实测均未通过验证/未执行。SVG 导入导出尚未经过真实浏览器文件往返验收。
 
-```bash
-npm install
-npm run typecheck
-npm test
-npm run build
-npm run tauri dev
-```
+## 完整替换说明
 
-Windows 安装包：在 Windows 构建主机配置 Rust 与 Tauri 工具链后运行 `npm run tauri build`。
-
-## 阶段计划
-
-1. 规范文档模型、对象/图层/画板关系、YGS v2 持久化与迁移规范。
-2. Geometry Engine：基础矩阵、边界框、Bézier 求值、命中测试、对象选择、Shift 多选、框选、拖拽移动、组缩放/旋转、方向键微移、批量变换命令和撤销/重做已进入 alpha.4；后续补齐精确曲线几何、节点编辑、间距分布与布尔运算。
-3. SVG Renderer + Raster Engine：无 Canvas 2D 的矢量/位图显示和处理。
-4. Selection/Tool Engine：对象选择集、钢笔、节点编辑、对齐分布、参考线和吸附。
-5. Layer Compositor：蒙版、混合模式、滤镜、调整图层。
-6. Menu/Command Registry：全部菜单、工具和快捷键统一命令化并覆盖测试。
-7. AI Provider 接入、五项 AI 工作流写回独立图层。
-8. 导入导出、恢复、性能、Windows 构建与真实交互验收。
-
-## 验收底线
-
-- 不允许 Canvas 2D 作为编辑、绘制、取色、像素填充或图像变换内核。
-- 不允许空接口或占位 UI 被标记为已实现。
-- 每项菜单操作必须产生可验证的文档变化或明确显示不可用原因。
-- 保存、关闭、重新打开后，文档结构与编辑状态必须通过测试。
-
-## 品牌与启动界面（alpha.3）
-
-- 应用图标、品牌图和启动画面原图直接沿用 0.4.7 原始资源，文件内容保持逐字节一致。
-- 启动画面在原有“正在初始化...”文字位置覆盖动态状态文字“正在初始化.....”，五个点依次呼吸闪烁；启动画面主体图片不做重绘或换色。
-- Tauri 启动时先显示品牌启动窗口，约 1.8 秒后显示主窗口并关闭启动窗口。
-- 动画遵循 `prefers-reduced-motion`，减少动态效果时显示静态五点。
-
-
-## Alpha 0.5 — viewport navigation
-
-- Alt + 鼠标滚轮以指针所在位置为锚点缩放，避免鼠标下方内容漂移。
-- 鼠标中键按住拖动画布。
-- 按住空格键 + 鼠标左键或右键拖动画布；右键上下文菜单在画布内被抑制。
-- 平移手势取消时恢复手势开始前的视口。
-- 视口平移和缩放锚点逻辑增加单元测试。
-- 修复 Tauri `Manager` trait 导入，确保 `get_webview_window` API 在作用域中。
-
-## Alpha 0.4 — interactive selection and transforms
-
-This iteration adds a working SVG-based interaction loop: rectangle/ellipse drag creation, object hit testing, click selection, Shift-toggle multi-selection, marquee selection, multi-object dragging, group resize handles, rotation handle, arrow-key nudging (Shift = 10 px), Delete, alignment actions, and atomic multi-object transform history. YGS open/save now round-trips the transformed document model. The renderer and interaction layer remain SVG/DOM based; Canvas 2D is not used.
-
-Known limits in this iteration: the pen tool, node-level path editing, aspect-ratio lock during resizing, snapping/guides, artboard-aware clipping, and full raster-object rendering are not implemented. Resize/rotate are bounding-box/group transforms, not individual object pivot controls. Automated browser pointer tests and native Windows/Tauri runtime validation still need to be run in an environment with installed dependencies and a Windows toolchain.
+解压后使用本包中的 `YutuGs-Photo` 工程目录整体替换旧工程目录。请先备份本地未提交的个人修改。后续每个版本均以完整源码包交付，并同步更新 README、版本号、变更记录、功能迁移矩阵和验证报告。
