@@ -1,34 +1,48 @@
-import { Fragment, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { FilePlus2, MousePointer2, PenTool, Square, Circle, Hand, ZoomIn, ZoomOut, Layers3, PanelLeft, PanelRight, Save, Undo2, Redo2, AlignStartVertical, AlignCenterHorizontal, AlignEndVertical, Trash2, Eye, EyeOff, Lock, Unlock } from 'lucide-react';
-import { createDocument, createId, identityMatrix } from './core/model';
-import type { EditorObject, Id, Point } from './core/model';
-import type { EditorCommand } from './core/commands';
-import { createHistory, dispatch, redo, undo } from './core/history';
-import type { HistoryState } from './core/history';
-import { defaultViewport, panBy, screenToDocument, zoomAt } from './core/viewport';
-import type { Viewport } from './core/viewport';
-import { applyMatrix, getObjectBounds, hitTest, invertMatrix, multiplyMatrices, unionBounds } from './core/geometry';
-import { createInteractiveTransform } from './core/transform';
-import { identityProjective, multiplyProjective, projectiveFromRectToQuad, projectiveToCssMatrix3d, projectiveIdentity, applyProjective, invertProjective, affineToProjective } from './core/projective';
-import { emptySelection, getSelectionBounds, selectByPoint, selectInRectangle } from './core/selection';
-import type { SelectionState } from './core/model';
-import SvgArtboard from './renderer/SvgArtboard';
-import { importSvgText } from './io/svg';
-import { encodeYgs, decodeYgs } from './persistence/ygs';
-import AiWorkspace from './features/ai/AiWorkspace';
-import PrintColorWorkspace from './features/print/PrintColorWorkspace';
-import { packagingTemplates, getTemplateLabel, type BagType } from './lib/packagingTemplates';
-import { booleanPath } from './core/pathBoolean';
+import type { ReactNode } from 'react';
+import type { Artboard, EditorObject, VectorObject, RasterAsset, Guide, Layer, YgsDocument, Adjustment } from '../core/model';
+import type { Viewport } from '../core/viewport';
+import { projectiveToCssMatrix3d, projectiveIdentity } from '../core/projective';
 
-type HistoryAction = { type: 'undo' } | { type: 'redo' } | { type: 'command'; command: EditorCommand } | { type: 'replace'; document: ReturnType<typeof createDocument> };
-function historyReducer(state: HistoryState, action: HistoryAction) {
-  switch (action.type) {
-    case 'undo': return undo(state);
-    case 'redo': return redo(state);
-    case 'replace': return createHistory(action.document);
-    case 'command': return dispatch(state, action.command);
+type Props = { 
+  artboard: Artboard; 
+  objects: Record<string, EditorObject>; 
+  assets?: Record<string, RasterAsset>; 
+  viewport: Viewport; 
+  previewTransforms?: Record<string, EditorObject['transform']>; 
+  previewProjectives?: Record<string, NonNullable<EditorObject['projectiveTransform']>>; // 补充此属性
+  selectionBounds?: { minX: number; minY: number; maxX: number; maxY: number } | null; 
+  marquee?: { x: number; y: number; width: number; height: number } | null; 
+  guides?: Guide[]; 
+  showGoldenGuides?: boolean; 
+  packaging?: YgsDocument['packaging']; 
+  layers?: Layer[]; 
+  adjustments?: Record<string, Adjustment[]>; 
+  active?: boolean;
+  transformMode?: 'free'|'perspective'|'distort'; // 补充此属性
+};
+
+function pathData(g: any, _id?: string) { 
+  return g.segments.map((segment: any, i: number) => { 
+    const target=g.nodes[segment.to]?.anchor;
+    if(!target)return '';
+    if(segment.type==='move')return `${i?' ':' '}M ${target.x} ${target.y}`;
+    if(segment.type==='line')return `L ${target.x} ${target.y}`;
+    if(segment.type==='quadratic'&&segment.control)return `Q ${segment.control.x} ${segment.control.y} ${target.x} ${target.y}`;
+    if(segment.type==='cubic'&&segment.from!==undefined){
+      const from=g.nodes[segment.from],c1=from?.outHandle??from?.anchor,c2=g.nodes[segment.to]?.inHandle??target;
+      return `C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${target.x} ${target.y}`;
+    }
+    return '';
+  }).join(' ')+(g.closed?' Z':''); 
+}
+
+function renderObject(object: EditorObject, assets: Record<string, RasterAsset>, previewTransform?: EditorObject['transform'], previewProjective?: NonNullable<EditorObject['projectiveTransform']>) {
+  if (object.kind === 'image') { 
+    const asset=assets[object.assetId];
+    if(!asset?.dataUrl)return null;
+    return <image key={object.id} href={asset.dataUrl} x={object.x} y={object.y} width={object.width} height={object.height} transform={`matrix(${(previewTransform??object.transform).join(' ')})`} opacity={object.opacity}/>; 
   }
+<<<<<<< HEAD
 }
 type DragState = { kind: 'move'|'marquee'|'resize'|'rotate'|'projective'|'draw'|'pan'|'stroke'|'node'|'pen-handle'; pointerId: number; start: Point; current: Point; ids: Id[]; initial: Record<string, EditorObject['transform']>; initialProjectives?: Record<string, NonNullable<EditorObject['projectiveTransform']>>; corner?: 'nw'|'ne'|'se'|'sw'; bounds: NonNullable<ReturnType<typeof getSelectionBounds>> | null; handle?: import('./core/transform').TransformHandle; additive: boolean; tool?: string; viewportStart?: Viewport; points?: Point[]; objectId?: Id; nodeIndex?: number; nodeHandle?: 'anchor'|'in'|'out'; nodeMatrix?: EditorObject['transform']; nodeProjective?: EditorObject['projectiveTransform']; initialGeometry?: import('./core/model').VectorPath };
 const HANDLE_POINTS: import('./core/transform').TransformHandle[] = ['nw','n','ne','e','se','s','sw','w'];
@@ -56,7 +70,20 @@ export default function App() {
   const [showRulers, setShowRulers] = useState(false);
   const [showGoldenGuides, setShowGoldenGuides] = useState(false);
   const [showNewDocDialog,setShowNewDocDialog]=useState(false);
+  const [clipboardObjects,setClipboardObjects]=useState<EditorObject[]>([]);
   const [newDocMode,setNewDocMode]=useState<'photo'|'illustration'>('photo');
+  const [newDocCategory,setNewDocCategory]=useState<'Photo'|'Print'|'Art & Illustration'|'Web'|'Mobile'|'Film & Video'>('Photo');
+  const [newDocOrientation,setNewDocOrientation]=useState<'landscape'|'portrait'>('landscape');
+  const [newDocBitDepth,setNewDocBitDepth]=useState<8|16|32>(8);
+  const [newDocProfile,setNewDocProfile]=useState('sRGB IEC61966-2.1');
+  const [newDocPixelAspect,setNewDocPixelAspect]=useState<'square'|'1.33'|'0.9'|'custom'>('square');
+  const [newDocPixelAspectCustom,setNewDocPixelAspectCustom]=useState(1);
+  const [newDocBleed,setNewDocBleed]=useState({top:3,right:3,bottom:3,left:3});
+  const [newDocRasterPpi,setNewDocRasterPpi]=useState<72|150|300>(300);
+  const [newDocPreviewMode,setNewDocPreviewMode]=useState<'default'|'pixel'|'overprint'>('default');
+  const [newDocArtboardColumns,setNewDocArtboardColumns]=useState(2);
+  const [newDocArtboardSpacing,setNewDocArtboardSpacing]=useState(40);
+  const [newDocPixelGrid,setNewDocPixelGrid]=useState(false);
   const [newDocName,setNewDocName]=useState('未命名设计');
   const [newDocWidth,setNewDocWidth]=useState(1920);
   const [newDocHeight,setNewDocHeight]=useState(1080);
@@ -64,7 +91,8 @@ export default function App() {
   const [newDocDpi,setNewDocDpi]=useState(300);
   const [newDocColor,setNewDocColor]=useState<'RGB'|'CMYK'|'Grayscale'>('RGB');
   const [newDocArtboards,setNewDocArtboards]=useState(1);
-  const [newDocBackground,setNewDocBackground]=useState<'white'|'transparent'|'black'>('white');
+  const [newDocBackground,setNewDocBackground]=useState<'white'|'transparent'|'black'|'custom'>('white');
+  const [newDocCustomBackground,setNewDocCustomBackground]=useState('#ffffff');
   const [activeColor,setActiveColor]=useState('#8d6bea');
   const [brushSize,setBrushSize]=useState(12);
   const [penPoints,setPenPoints]=useState<Point[]>([]);
@@ -98,8 +126,9 @@ export default function App() {
   const zoomLabel = useMemo(() => `${Math.round(viewport.zoom * 100)}%`, [viewport.zoom]);
   const saveDocument = async () => {
     const blob = await encodeYgs(doc); const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
-    anchor.href = url; anchor.download = `${doc.name || 'untitled'}.ygs`; anchor.click(); URL.revokeObjectURL(url);
+    anchor.href = url; anchor.download = `${doc.name || 'untitled'}.ygs`; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+  const saveDocumentAs = async () => { const suggested = `${doc.name || 'untitled'}.ygs`; const name = window.prompt('另存为 YGS 文档（文件名）', suggested); if (!name?.trim()) return; const blob = await encodeYgs({...doc,name:name.trim().replace(/\.ygs$/i,'')}); const url=URL.createObjectURL(blob); const anchor=document.createElement('a'); anchor.href=url; anchor.download=/\.ygs$/i.test(name.trim())?name.trim():`${name.trim()}.ygs`; anchor.click(); window.setTimeout(()=>URL.revokeObjectURL(url),1000); };
   const openDocument = async (file: File) => { try { setHistory({type:'replace',document:await decodeYgs(file)}); setSelection(emptySelection());setPenPoints([]);setPenNodes([]); } catch(error) { window.alert(`无法打开 YGS 文件：${error instanceof Error?error.message:String(error)}`); } };
   const addArtboard = () => {
     const layerId = createId('layer'), artboardId = createId('artboard');
@@ -118,35 +147,110 @@ export default function App() {
       const corners:{key:'nw'|'ne'|'se'|'sw';point:Point}[]=[{key:'nw',point:{x:x1,y:y1}},{key:'ne',point:{x:x2,y:y1}},{key:'se',point:{x:x2,y:y2}},{key:'sw',point:{x:x1,y:y2}}];
       for(const item of corners)if(Math.hypot(screen.x-item.point.x,screen.y-item.point.y)<12)return `p-${item.key}`;
       return;
-    }
-    const pts:Record<import('./core/transform').TransformHandle,Point>={nw:{x:x1,y:y1},n:{x:cx,y:y1},ne:{x:x2,y:y1},e:{x:x2,y:cy},se:{x:x2,y:y2},s:{x:cx,y:y2},sw:{x:x1,y:y2},w:{x:x1,y:cy},rotate:{x:cx,y:y1-36}};
-    for(const key of [...HANDLE_POINTS,'rotate'] as import('./core/transform').TransformHandle[])if(Math.hypot(screen.x-pts[key].x,screen.y-pts[key].y)<10)return key;
-    return;
+=======
+  
+  const vector=object as VectorObject; 
+  if(vector.compositeMode==='erase')return null;
+  
+  const common={
+    transform:`matrix(${(previewTransform??object.transform).join(' ')})`,
+    opacity:object.opacity,
+    fill:vector.fill??'none',
+    stroke:vector.stroke??'none',
+    strokeWidth:vector.strokeWidth,
+    strokeLinecap:'round' as const,
+    strokeLinejoin:'round' as const,
+    filter:vector.filter?`url(#object-filter-${object.id})`:undefined
   };
-  const onPointerDown=(event:React.PointerEvent<HTMLDivElement>)=>{
-    if(!stageRef.current)return;
-    const rect=stageRef.current.getBoundingClientRect(),screen={x:event.clientX-rect.left,y:event.clientY-rect.top};
-    const shouldPan=event.button===1||(spacePressed.current&&(event.button===0||event.button===2));
-    if(shouldPan){event.preventDefault();const next:DragState={kind:'pan',pointerId:event.pointerId,start:screen,current:screen,ids:[],initial:{},bounds:null,additive:false,viewportStart:viewport};dragRef.current=next;setDrag(next);stageRef.current.setPointerCapture(event.pointerId);return;}
-    if(event.button!==0)return;
-    const rawPoint=screenToDocument(screen,viewport);const locatedBoard=doc.artboards.find(board=>rawPoint.x>=board.x&&rawPoint.x<=board.x+board.width&&rawPoint.y>=board.y&&rawPoint.y<=board.y+board.height);if(locatedBoard&&locatedBoard.id!==artboard.id){setActiveArtboardId(locatedBoard.id);setSelection({objectIds:[],activeObjectId:null,artboardId:locatedBoard.id});setPenPoints([]);setPenNodes([]);return;}const point={x:rawPoint.x-artboard.x,y:rawPoint.y-artboard.y};
-    const additive=event.shiftKey;
-    let next:DragState|null=null;
-    if(activeTool==='text'){const layer=doc.layers.find(l=>artboard.layerIds.includes(l.id)&&!l.locked&&l.visible);if(layer){const object:EditorObject={id:createId('text'),name:textValue.slice(0,24)||'文字',kind:'text',geometry:{x:point.x,y:point.y,text:textValue,fontSize,fontFamily,fontWeight,fontStyle},transform:identityMatrix(),opacity:1,visible:true,locked:false,layerId:layer.id,fill:activeColor,stroke:null,strokeWidth:1};setHistory({type:'command',command:{type:'object.add',object}});setSelection({objectIds:[object.id],activeObjectId:object.id,artboardId:artboard.id});}return;}
-    if(activeTool==='eyedropper'){const hit=hitTest(objects,point,8/viewport.zoom);const object=hit?doc.objects[hit.id]:null;if(object&&object.kind!=='image')setActiveColor((object as import('./core/model').VectorObject).fill??(object as import('./core/model').VectorObject).stroke??activeColor);return;}
-    if(activeTool==='bucket'){const hit=hitTest(objects,point,8/viewport.zoom);const object=hit?doc.objects[hit.id]:null;if(object&&object.kind!=='image')setHistory({type:'command',command:{type:'object.update',id:object.id,patch:{fill:activeColor}}});return;}
-    if(activeTool==='pen'){next={kind:'pen-handle',pointerId:event.pointerId,start:point,current:point,ids:[],initial:{},bounds:null,additive:false};}
-    if(activeTool==='node'){const target=selection.objectIds.map(id=>doc.objects[id]).find((o):o is import('./core/model').VectorObject=>Boolean(o&&o.kind==='path'));if(target){const geometry=target.geometry as import('./core/model').VectorPath,unprojected=target.projectiveTransform?applyProjective(point,invertProjective(target.projectiveTransform)):point,nodePoint=applyMatrix(unprojected,invertMatrix(target.transform));let best=-1,bestHandle:'anchor'|'in'|'out'='anchor',distance=10/viewport.zoom;geometry.nodes.forEach((node,index)=>{for(const [handle,p] of [['anchor',node.anchor],['in',node.inHandle],['out',node.outHandle]] as const){if(!p)continue;const d=Math.hypot(p.x-nodePoint.x,p.y-nodePoint.y);if(d<distance){distance=d;best=index;bestHandle=handle;}}});if(best>=0){next={kind:'node',pointerId:event.pointerId,start:nodePoint,current:nodePoint,ids:[target.id],initial:{},bounds:null,additive:false,objectId:target.id,nodeIndex:best,nodeHandle:bestHandle,nodeMatrix:target.transform,nodeProjective:target.projectiveTransform,initialGeometry:structuredClone(geometry)};}}if(!next){const hit=hitTest(objects,point,8/viewport.zoom);if(hit)setSelection({objectIds:[hit.id],activeObjectId:hit.id,artboardId:artboard.id});} }
-    if((activeTool==='brush'||activeTool==='eraser')){next={kind:'stroke',pointerId:event.pointerId,start:point,current:point,ids:[],initial:{},bounds:null,additive:false,tool:activeTool,points:[point]};}
-    if(activeTool==='select'&&selection.objectIds.length){
-      const handle=getHandleAt(screen);
-      if(handle&&selectionBounds){
-        const initial=Object.fromEntries(selection.objectIds.map(id=>[id,doc.objects[id].transform]));
-        const initialProjectives=Object.fromEntries(selection.objectIds.map(id=>[id,doc.objects[id].projectiveTransform??identityProjective()]));
-        if(typeof handle==='string'&&handle.startsWith('p-')){const corner=handle.slice(2) as 'nw'|'ne'|'se'|'sw';next={kind:'projective',pointerId:event.pointerId,start:point,current:point,ids:[...selection.objectIds],initial,initialProjectives,bounds:selectionBounds,corner,additive};}
-        else next={kind:handle==='rotate'?'rotate':'resize',pointerId:event.pointerId,start:point,current:point,ids:[...selection.objectIds],initial,initialProjectives,bounds:selectionBounds,handle,additive};
-      }
+  
+  let shape;
+  if(vector.kind==='rect'){
+    const g=vector.geometry as {x:number;y:number;width:number;height:number};
+    shape=<rect x={g.x} y={g.y} width={g.width} height={g.height} {...common}/>;
+  }
+  else if(vector.kind==='ellipse'){
+    const g=vector.geometry as {x:number;y:number;width:number;height:number};
+    shape=<ellipse cx={g.x+g.width/2} cy={g.y+g.height/2} rx={g.width/2} ry={g.height/2} {...common}/>;
+  }
+  else if(vector.kind==='text'){
+    const g=vector.geometry as {x:number;y:number;text:string;fontSize:number;fontFamily:string;fontWeight?:string;fontStyle?:string};
+    shape=<text x={g.x} y={g.y} fontSize={g.fontSize} fontFamily={g.fontFamily} fontWeight={g.fontWeight??'400'} fontStyle={g.fontStyle??'normal'} {...common}>{g.text}</text>;
+  }
+  else {
+    const g=vector.geometry as any;
+    shape=<path d={pathData(g, object.id)} fillRule={g.fillRule??'nonzero'} {...common}/>;
+  }
+
+  const finalProjective = previewProjective ?? object.projectiveTransform;
+  if (finalProjective && !projectiveIdentity(finalProjective)) {
+    return (
+      <g key={object.id} style={{ transform: projectiveToCssMatrix3d(finalProjective), transformOrigin: '0 0', transformBox: 'view-box' }}>
+        {shape}
+      </g>
+    );
+  }
+
+  return <g key={object.id}>{shape}</g>;
+}
+
+function filterMarkup(id:string,filter:{kind:string;amount:number}) { 
+  return <filter id={id} key={id} colorInterpolationFilters="sRGB">
+    {filter.kind==='gaussian-blur' ? 
+      <feGaussianBlur stdDeviation={String(Math.max(0,filter.amount))}/> : 
+    filter.kind==='brightness' ? 
+      <feComponentTransfer>
+        <feFuncR type="linear" slope={String(filter.amount)}/>
+        <feFuncG type="linear" slope={String(filter.amount)}/>
+        <feFuncB type="linear" slope={String(filter.amount)}/>
+      </feComponentTransfer> : 
+      <feColorMatrix type="hueRotate" values={String(filter.amount)}/>
+>>>>>>> 65e80f31a0cf00e5d88064b2671b80a199a7074f
     }
+  </filter>; 
+}
+
+function adjustmentFilter(id:string,items:Adjustment[]) { 
+  const enabled=items.filter(x=>x.enabled);
+  if(!enabled.length)return null;
+  return <filter id={id} key={id} colorInterpolationFilters="sRGB">
+    {enabled.map(item=>
+      item.kind==='gaussian-blur' ? 
+        <feGaussianBlur key={item.id} stdDeviation={String(Number(item.parameters.radius??2))}/> : 
+      item.kind==='brightness-contrast' ? 
+        <feComponentTransfer key={item.id}>
+          <feFuncR type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/>
+          <feFuncG type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/>
+          <feFuncB type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/>
+        </feComponentTransfer> : 
+      item.kind==='hue-saturation' ? 
+        <feColorMatrix key={item.id} type="hueRotate" values={String(Number(item.parameters.hue??0))}/> : 
+      null
+    )}
+  </filter>; 
+}
+
+export default function SvgArtboard({
+  artboard, objects, assets = {}, viewport, previewTransforms = {}, previewProjectives = {}, selectionBounds, marquee, guides = [], showGoldenGuides = false, packaging, layers = [], adjustments = {}, active = true
+}: Props) {
+  const layerGroups: ReactNode[] = [];
+  
+  for (const layerId of artboard.layerIds) {
+    const layer = layers.find(item => item.id === layerId);
+    if (layer && !layer.visible) continue;
+    
+    const layerAdjustment = adjustments[layerId] ?? [];
+    if (layer?.kind === 'adjustment') {
+      if (layerAdjustment.length && layerGroups.length) {
+        const previous = layerGroups.splice(0);
+        layerGroups.push(
+          <g key={`adjustment-stack-${layerId}`} filter={`url(#adjustment-filter-${artboard.id}-${layerId})`}>
+            {previous}
+          </g>
+        );
+      }
+      continue;
+    }
+<<<<<<< HEAD
     if(!next&&activeTool==='select'){
       const hit=hitTest(objects,point,6/viewport.zoom);
       const found=hit&&selection.objectIds.includes(hit.id)&&!additive?selection:selectByPoint(selection,objects,point,{additive,toggle:additive,tolerance:6/viewport.zoom,artboardId:artboard.id});
@@ -199,10 +303,14 @@ export default function App() {
   const skewSelection=(axis:'x'|'y',degrees:number)=>{const t=Math.tan(degrees*Math.PI/180);applySelectionAffine(axis==='x'?[1,0,t,1,0,0]:[1,t,0,1,0,0]);};
   const scaleSelection=(sx:number,sy:number)=>applySelectionAffine([sx,0,0,sy,0,0]);
   const deleteSelection=()=>{if(selection.objectIds.length){setHistory({type:'command',command:{type:'object.delete',ids:selection.objectIds}});setSelection(emptySelection());}};
+  const copySelection=()=>{const copied=selection.objectIds.map(id=>doc.objects[id]).filter((item):item is EditorObject=>Boolean(item));setClipboardObjects(copied.map(item=>structuredClone(item)));};
+  const pasteClipboard=()=>{if(!clipboardObjects.length)return;const targetLayer=doc.layers.find(layer=>artboard.layerIds.includes(layer.id)&&layer.visible&&!layer.locked);if(!targetLayer){window.alert('当前画板没有可编辑图层');return;}const added:Id[]=[];for(const source of clipboardObjects){const clone=structuredClone(source);clone.id=createId('object');clone.name=`${source.name} 副本`;clone.layerId=targetLayer.id;clone.transform=[source.transform[0],source.transform[1],source.transform[2],source.transform[3],source.transform[4]+24,source.transform[5]+24];setHistory({type:'command',command:{type:'object.add',object:clone}});added.push(clone.id);}setSelection({objectIds:added,activeObjectId:added.at(-1)??null,artboardId:artboard.id});};
+  const duplicateSelection=()=>{copySelection();const selected=selection.objectIds.map(id=>doc.objects[id]).filter((item):item is EditorObject=>Boolean(item));const added:Id[]=[];for(const source of selected){const clone=structuredClone(source);clone.id=createId('object');clone.name=`${source.name} 副本`;clone.transform=[source.transform[0],source.transform[1],source.transform[2],source.transform[3],source.transform[4]+24,source.transform[5]+24];setHistory({type:'command',command:{type:'object.add',object:clone}});added.push(clone.id);}setSelection({objectIds:added,activeObjectId:added.at(-1)??null,artboardId:artboard.id});};
+  const cutSelection=()=>{copySelection();deleteSelection();};
   const importSvgFile=async(file:File)=>{try{const result=importSvgText(await file.text(),file.name);setHistory({type:'replace',document:result.document});setActiveArtboardId(null);setSelection(emptySelection());if(result.warnings.length)window.alert(`SVG 已导入，但有以下限制：\n\n${result.warnings.join('\n')}`);}catch(error){window.alert(`SVG 导入失败：${error instanceof Error?error.message:String(error)}`);}};
   const downloadText=(name:string,content:string,mime='image/svg+xml')=>{const blob=new Blob([content],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url);};
   const newDocument=()=>setShowNewDocDialog(true);
-  const createNewDocument=()=>{if(newDocWidth<1||newDocHeight<1||newDocDpi<1)return;const width=newDocUnits==='px'?newDocWidth:Math.round(newDocWidth*newDocDpi/(newDocUnits==='mm'?25.4:newDocUnits==='cm'?2.54:1));const height=newDocUnits==='px'?newDocHeight:Math.round(newDocHeight*newDocDpi/(newDocUnits==='mm'?25.4:newDocUnits==='cm'?2.54:1));const next=createDocument(newDocName||'未命名设计',width,height);next.units=newDocUnits;next.resolutionDpi=newDocDpi;next.colorMode=newDocColor;next.artboards[0].background=newDocBackground==='transparent'?'transparent':newDocBackground==='black'?'#000000':'#ffffff';for(let i=1;i<newDocArtboards;i++){const layerId=createId('layer'),boardId=createId('artboard');next.artboards.push({id:boardId,name:`画板 ${i+1}`,x:i*(width+80),y:0,width,height,background:next.artboards[0].background,layerIds:[layerId]});next.layers.push({id:layerId,name:'图层 1',visible:true,locked:false,opacity:1,objectIds:[],parentId:null,blendMode:'normal',kind:'vector'});}setHistory({type:'replace',document:next});setActiveArtboardId(next.artboards[0].id);setSelection(emptySelection());setPenPoints([]);setPenNodes([]);setViewport(defaultViewport());setShowNewDocDialog(false);};
+  const createNewDocument=()=>{if(!Number.isFinite(newDocWidth)||!Number.isFinite(newDocHeight)||!Number.isFinite(newDocDpi)||newDocWidth<1||newDocHeight<1||newDocDpi<1)return;const widthMm=newDocUnits==='mm'?newDocWidth:newDocUnits==='cm'?newDocWidth*10:newDocUnits==='in'?newDocWidth*25.4:newDocWidth*25.4/newDocDpi;const heightMm=newDocUnits==='mm'?newDocHeight:newDocUnits==='cm'?newDocHeight*10:newDocUnits==='in'?newDocHeight*25.4:newDocHeight*25.4/newDocDpi;const width=Math.max(1,Math.round(widthMm*newDocDpi/25.4)),height=Math.max(1,Math.round(heightMm*newDocDpi/25.4));const next=createDocument(newDocName.trim()||'未命名设计',width,height);next.units=newDocUnits;next.resolutionDpi=newDocDpi;next.colorMode=newDocColor;next.artboards[0].background=newDocBackground==='transparent'?'transparent':newDocBackground==='black'?'#000000':newDocBackground==='custom'?newDocCustomBackground:'#ffffff';next.documentSetup={applicationMode:newDocMode,presetCategory:newDocCategory,orientation:newDocOrientation,bitDepth:newDocBitDepth,pixelAspectRatio:newDocPixelAspect,pixelAspectCustom:newDocPixelAspect==='custom'?newDocPixelAspectCustom:undefined,colorProfileName:newDocProfile,artboardColumns:newDocArtboardColumns,artboardSpacing:newDocArtboardSpacing,bleedMm:newDocBleed,rasterEffectsPpi:newDocRasterPpi,previewMode:newDocPreviewMode,alignNewObjectsToPixelGrid:newDocPixelGrid};const gap=newDocArtboardSpacing;for(let i=1;i<newDocArtboards;i++){const layerId=createId('layer'),boardId=createId('artboard'),column=i%newDocArtboardColumns,row=Math.floor(i/newDocArtboardColumns);next.artboards.push({id:boardId,name:`画板 ${i+1}`,x:column*(width+gap),y:row*(height+gap),width,height,background:next.artboards[0].background,layerIds:[layerId]});next.layers.push({id:layerId,name:'图层 1',visible:true,locked:false,opacity:1,objectIds:[],parentId:null,blendMode:'normal',kind:'vector'});}if(newDocMode==='illustration'){next.packaging=undefined;}setHistory({type:'replace',document:next});setActiveArtboardId(next.artboards[0].id);setSelection(emptySelection());setPenPoints([]);setPenNodes([]);setViewport(defaultViewport());setShowNewDocDialog(false);};
   const resizeArtboard=()=>{const width=Number(window.prompt('画布宽度（px）',String(artboard.width)));if(!Number.isFinite(width)||width<1)return;const height=Number(window.prompt('画布高度（px）',String(artboard.height)));if(!Number.isFinite(height)||height<1)return;setHistory({type:'command',command:{type:'artboard.resize',id:artboard.id,width:Math.round(width),height:Math.round(height)}});};
   const buildSvg=()=>{const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');const wrapProjective=(node:string,object:EditorObject)=>object.projectiveTransform&&!projectiveIdentity(object.projectiveTransform)?`<g style="transform:${projectiveToCssMatrix3d(object.projectiveTransform)};transform-origin:0 0;transform-box:view-box">${node}</g>`:node;const nodes:string[]=[];for(const layerId of artboard.layerIds){for(const object of objects.filter(o=>o.layerId===layerId&&o.visible)){if(object.kind==='image'){const asset=doc.assets[object.assetId];if(asset?.dataUrl)nodes.push(wrapProjective(`<image href="${asset.dataUrl}" x="${object.x}" y="${object.y}" width="${object.width}" height="${object.height}" transform="matrix(${object.transform.join(' ')})" opacity="${object.opacity}"/>`,object));continue;}const v=object as import('./core/model').VectorObject;const transform=`matrix(${object.transform.join(' ')})`;const paint=`fill="${esc(v.fill??'none')}" stroke="${esc(v.stroke??'none')}" stroke-width="${v.strokeWidth}" opacity="${object.opacity}" transform="${transform}"`;if(v.kind==='rect'||v.kind==='ellipse'){const g=v.geometry as {x:number;y:number;width:number;height:number};nodes.push(wrapProjective(v.kind==='rect'?`<rect x="${g.x}" y="${g.y}" width="${g.width}" height="${g.height}" ${paint}/>`:`<ellipse cx="${g.x+g.width/2}" cy="${g.y+g.height/2}" rx="${g.width/2}" ry="${g.height/2}" ${paint}/>`,object));}else if(v.kind==='text'){const g=v.geometry as {x:number;y:number;text:string;fontSize:number;fontFamily:string;fontWeight?:string;fontStyle?:string};nodes.push(wrapProjective(`<text x="${g.x}" y="${g.y}" font-size="${g.fontSize}" font-family="${esc(g.fontFamily)}" font-weight="${g.fontWeight??'400'}" font-style="${g.fontStyle??'normal'}" ${paint}>${esc(g.text)}</text>`,object));}else{const g=v.geometry as import('./core/model').VectorPath;const d=g.segments.map(seg=>{const end=g.nodes[seg.to]?.anchor;if(!end)return '';if(seg.type==='move')return `M ${end.x} ${end.y}`;if(seg.type==='line')return `L ${end.x} ${end.y}`;if(seg.type==='quadratic'&&seg.control)return `Q ${seg.control.x} ${seg.control.y} ${end.x} ${end.y}`;if(seg.type==='cubic'&&seg.from!==undefined){const a=g.nodes[seg.from],c1=a.outHandle??a.anchor,c2=g.nodes[seg.to].inHandle??end;return `C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${end.x} ${end.y}`;}return '';}).join(' ')+(g.closed?' Z':'');nodes.push(wrapProjective(`<path d="${d}" ${paint} fill-rule="${g.fillRule}"/>`,object));}}}const svg=`<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${artboard.width}" height="${artboard.height}" viewBox="0 0 ${artboard.width} ${artboard.height}"><rect width="100%" height="100%" fill="${artboard.background==='transparent'?'none':artboard.background}"/>${nodes.join('')}</svg>`;return svg;};
   const exportSvg=()=>downloadText(`${doc.name||'untitled'}.svg`,buildSvg());
@@ -249,22 +357,24 @@ export default function App() {
     setHistory({ type: 'command', command: { type: 'layer.add', layer, artboardId: artboard.id } });
   };
   const applyBoolean=(op:'union'|'subtract'|'intersect'|'exclude')=>{if(selection.objectIds.length!==2){window.alert('路径布尔运算需要恰好选择两个对象');return;}const [a,b]=selection.objectIds.map(id=>doc.objects[id]);if(!a||!b||a.kind==='image'||b.kind==='image'){window.alert('请选择两个矢量对象');return;}try{const geometry=booleanPath(a as import('./core/model').VectorObject,b as import('./core/model').VectorObject,op);const layer=doc.layers.find(item=>item.id===a.layerId);if(!layer) return;const result:EditorObject={id:createId('boolean'),name:`路径${({union:'联合',subtract:'减去',intersect:'相交',exclude:'排除'} as const)[op]}`,kind:'path',geometry,transform:identityMatrix(),opacity:1,visible:true,locked:false,layerId:layer.id,fill:(a as import('./core/model').VectorObject).fill??activeColor,stroke:null,strokeWidth:0};setHistory({type:'command',command:{type:'object.add',object:result}});setHistory({type:'command',command:{type:'object.delete',ids:[a.id,b.id]}});setSelection({objectIds:[result.id],activeObjectId:result.id,artboardId:artboard.id});}catch(error){window.alert(`路径布尔运算失败：${error instanceof Error?error.message:String(error)}`);}};
-  const applySelectedFilter=(kind:'gaussian-blur'|'brightness'|'hue-rotate',amount:number)=>{const id=selection.objectIds[0],object=id?doc.objects[id]:null;if(!object||object.kind==='image'){window.alert('请先选择一个矢量对象');return;}setHistory({type:'command',command:{type:'object.update',id,patch:{filter:{kind,amount}}}});};
+  const applySelectedFilter=(kind:'gaussian-blur'|'brightness'|'hue-rotate',amount:number)=>{if(!Number.isFinite(amount)||(kind==='gaussian-blur'&&amount<0)||(kind==='brightness'&&amount<0)||(kind==='hue-rotate'&&(amount<0||amount>360))){window.alert(kind==='hue-rotate'?'色相角度必须在 0–360 之间':'滤镜数值必须是有效的非负数');return;}const targets=selection.objectIds.map(id=>doc.objects[id]).filter((object):object is Extract<EditorObject,{kind:'path'|'rect'|'ellipse'|'text'}>=>Boolean(object)&&object.kind!=='image');if(!targets.length){window.alert('此滤镜目前仅支持矢量对象，请选择路径、形状或文字对象');return;}for(const object of targets)setHistory({type:'command',command:{type:'object.update',id:object.id,patch:{filter:{kind,amount}}}});};
+  const promptSelectedFilter=(kind:'gaussian-blur'|'brightness'|'hue-rotate',title:string,initial:number)=>{const raw=window.prompt(title,String(initial));if(raw===null)return;const value=Number(raw);if(!Number.isFinite(value)){window.alert('请输入有效的滤镜数值');return;}applySelectedFilter(kind,value);};
   const addAdjustmentLayer=()=>{const layerId=createId('adjustment-layer');const layer={id:layerId,name:'调整图层',visible:true,locked:false,opacity:1,objectIds:[],parentId:null,blendMode:'normal',kind:'adjustment' as const};setHistory({type:'command',command:{type:'layer.add',layer,artboardId:artboard.id}});setHistory({type:'command',command:{type:'adjustment.add',layerId,adjustment:{id:createId('adjustment'),kind:'brightness-contrast',enabled:true,opacity:1,parameters:{brightness:0,contrast:0},maskAssetId:null}}});};
   const updateSelectedText=(patch:Partial<{fontFamily:string;fontSize:number;fontWeight:string;fontStyle:string;fill:string;content:string}>)=>{const id=selection.objectIds[0],object=id?doc.objects[id]:null;if(!object||object.kind!=='text')return;const geometry=object.geometry as {x:number;y:number;text:string;fontSize:number;fontFamily:string;fontWeight?:string;fontStyle?:string};const next={...geometry};if(patch.fontFamily)next.fontFamily=patch.fontFamily;if(patch.fontSize)next.fontSize=patch.fontSize;if(patch.fontWeight)next.fontWeight=patch.fontWeight;if(patch.fontStyle)next.fontStyle=patch.fontStyle;if(patch.content!==undefined)next.text=patch.content;setHistory({type:'command',command:{type:'object.update',id,patch:{geometry:next,...(patch.fill?{fill:patch.fill}:{})}}});};
+  const fitArtboards=()=>{if(!stageRef.current||!doc.artboards.length)return;const bounds={minX:Math.min(...doc.artboards.map(b=>b.x)),minY:Math.min(...doc.artboards.map(b=>b.y)),maxX:Math.max(...doc.artboards.map(b=>b.x+b.width)),maxY:Math.max(...doc.artboards.map(b=>b.y+b.height))};const rect=stageRef.current.getBoundingClientRect(),width=bounds.maxX-bounds.minX,height=bounds.maxY-bounds.minY,zoom=Math.min(8,Math.max(.05,Math.min((rect.width-80)/width,(rect.height-80)/height)));setViewport({zoom,panX:(rect.width-width*zoom)/2-bounds.minX*zoom,panY:(rect.height-height*zoom)/2-bounds.minY*zoom});};
   const menuItems:Record<string,{label:string;run?:()=>void;disabled?:boolean;hint?:string}[]>={
-    '文件':[{label:'新建…',run:newDocument,hint:'Ctrl+N'},{label:'打开 YGS…',run:()=>openInputRef.current?.click(),hint:'Ctrl+O'},{label:'导入 SVG…',run:()=>svgInputRef.current?.click()},{label:'保存 YGS',run:()=>void saveDocument(),hint:'Ctrl+S'},{label:'导出 SVG…',run:exportSvg},{label:'CMYK 印刷分色…',run:()=>setShowPrintWorkspace(true),hint:'ICC 配置文件 / CMYK TIFF / 四色版'},{label:'AI 智能工作台',run:()=>setShowAiWorkspace(true)},{label:'包装模板…',run:()=>setShowPackagingDialog(true)},{label:'另存为…',disabled:true,hint:'其他格式保存尚未实现'},{label:'打开为…',disabled:true,hint:'格式转换导入尚未实现'},{label:'关闭文档',run:()=>{setHistory({type:'replace',document:createDocument()});setSelection(emptySelection());}},{label:'关闭全部',run:()=>{setHistory({type:'replace',document:createDocument()});setSelection(emptySelection());}},{label:'打印 / 打印预览',disabled:true,hint:'打印管线尚未实现'},{label:'退出',disabled:true,hint:'请关闭应用窗口'}],
-    '编辑':[{label:'撤销',run:()=>setHistory({type:'undo'}),disabled:!history.past.length,hint:'Ctrl+Z'},{label:'重做',run:()=>setHistory({type:'redo'}),disabled:!history.future.length,hint:'Ctrl+Y'},{label:'删除所选对象',run:deleteSelection,disabled:!selection.objectIds.length,hint:'Delete'},{label:'全选对象',run:()=>setSelection({objectIds:objects.map(o=>o.id),activeObjectId:objects[objects.length-1]?.id??null,artboardId:artboard.id}),disabled:!objects.length,hint:'Ctrl+A'}],
-    '图像':[{label:'画布大小…',run:resizeArtboard},{label:'图像大小…',disabled:true,hint:'位图重采样尚未实现'}],
-    '图层':[{label:'新建图层',run:addLayer},{label:'删除空图层',run:()=>{const layer=doc.layers.find(item=>item.id===artboard.layerIds.at(-1));if(layer)setHistory({type:'command',command:{type:'layer.delete',id:layer.id}})},disabled:doc.layers.filter(item=>artboard.layerIds.includes(item.id)).length<=1 || Boolean(doc.layers.filter(item=>artboard.layerIds.includes(item.id)).at(-1)?.objectIds.length)},{label:'新建文字对象…',run:addTextObject},{label:'删除所选对象',run:deleteSelection,disabled:!selection.objectIds.length}],
-    '对象':[{label:'左对齐',run:()=>setHistory({type:'command',command:{type:'object.align',ids:selection.objectIds,axis:'left'}}),disabled:selection.objectIds.length<2},{label:'水平居中',run:()=>setHistory({type:'command',command:{type:'object.align',ids:selection.objectIds,axis:'center-x'}}),disabled:selection.objectIds.length<2},{label:'右对齐',run:()=>setHistory({type:'command',command:{type:'object.align',ids:selection.objectIds,axis:'right'}}),disabled:selection.objectIds.length<2},{label:'水平等间距分布',run:()=>setHistory({type:'command',command:{type:'object.distribute',ids:selection.objectIds,axis:'horizontal'}}),disabled:selection.objectIds.length<3},{label:'垂直等间距分布',run:()=>setHistory({type:'command',command:{type:'object.distribute',ids:selection.objectIds,axis:'vertical'}}),disabled:selection.objectIds.length<3}],
+    '文件':[{label:'新建文档…',run:newDocument,hint:'Ctrl+N'},{label:'打开 YGS…',run:()=>openInputRef.current?.click(),hint:'Ctrl+O'},{label:'导入 SVG…',run:()=>svgInputRef.current?.click()},{label:'保存 YGS',run:()=>void saveDocument(),hint:'Ctrl+S'},{label:'另存为 YGS…',run:()=>void saveDocumentAs(),hint:'Ctrl+Shift+S'},{label:'导出当前画板 SVG…',run:exportSvg},{label:'CMYK 印前与四色分色…',run:()=>setShowPrintWorkspace(true)},{label:'AI 智能工作台',run:()=>setShowAiWorkspace(true)},{label:'包装模板…',run:()=>setShowPackagingDialog(true)},{label:'打开为…',disabled:true,hint:'格式转换导入未实现'},{label:'打印 / 打印预览',disabled:true,hint:'尚无完整打印/PDF 输出管线'},{label:'关闭文档',run:()=>{if(window.confirm('关闭当前文档并切换到空白文档？未保存的修改不会保留。')){setHistory({type:'replace',document:createDocument()});setSelection(emptySelection());setActiveArtboardId(null);}}},{label:'关闭全部',disabled:true,hint:'当前为单文档工作区，尚无多文档标签管理'},{label:'退出应用',disabled:true,hint:'浏览器预览环境不允许关闭宿主窗口；桌面退出命令待接入'}],
+    '编辑':[{label:'撤销',run:()=>setHistory({type:'undo'}),disabled:!history.past.length,hint:'Ctrl+Z'},{label:'重做',run:()=>setHistory({type:'redo'}),disabled:!history.future.length,hint:'Ctrl+Y / Ctrl+Shift+Z'},{label:'剪切',run:cutSelection,disabled:!selection.objectIds.length,hint:'Ctrl+X'},{label:'复制',run:copySelection,disabled:!selection.objectIds.length,hint:'Ctrl+C'},{label:'粘贴',run:pasteClipboard,disabled:!clipboardObjects.length,hint:'Ctrl+V'},{label:'重复所选对象',run:duplicateSelection,disabled:!selection.objectIds.length,hint:'Ctrl+D'},{label:'删除所选对象',run:deleteSelection,disabled:!selection.objectIds.length,hint:'Delete'},{label:'全选当前画板对象',run:()=>setSelection({objectIds:objects.map(o=>o.id),activeObjectId:objects[objects.length-1]?.id??null,artboardId:artboard.id}),disabled:!objects.length,hint:'Ctrl+A'},{label:'取消选择',run:()=>setSelection(emptySelection()),disabled:!selection.objectIds.length,hint:'Ctrl+Shift+A'}],
+    '图像':[{label:'画布大小 / 画板尺寸…',run:resizeArtboard},{label:'图像大小 / 位图重采样…',disabled:true,hint:'位图资产重采样、对象整体缩放和分辨率重算尚未实现'}],
+    '图层':[{label:'新建图层',run:addLayer,hint:'新建矢量图层'},{label:'新建调整图层',run:addAdjustmentLayer},{label:'删除空图层',run:()=>{const layer=doc.layers.find(item=>item.id===artboard.layerIds.at(-1));if(layer)setHistory({type:'command',command:{type:'layer.delete',id:layer.id}});},disabled:doc.layers.filter(item=>artboard.layerIds.includes(item.id)).length<=1||Boolean(doc.layers.filter(item=>artboard.layerIds.includes(item.id)).at(-1)?.objectIds.length)},{label:'新建文字对象…',run:addTextObject},{label:'删除所选对象',run:deleteSelection,disabled:!selection.objectIds.length}],
+    '对象':[{label:'重复对象',run:duplicateSelection,disabled:!selection.objectIds.length,hint:'Ctrl+D'},{label:'左对齐',run:()=>setHistory({type:'command',command:{type:'object.align',ids:selection.objectIds,axis:'left'}}),disabled:selection.objectIds.length<2},{label:'水平居中',run:()=>setHistory({type:'command',command:{type:'object.align',ids:selection.objectIds,axis:'center-x'}}),disabled:selection.objectIds.length<2},{label:'右对齐',run:()=>setHistory({type:'command',command:{type:'object.align',ids:selection.objectIds,axis:'right'}}),disabled:selection.objectIds.length<2},{label:'水平等间距分布',run:()=>setHistory({type:'command',command:{type:'object.distribute',ids:selection.objectIds,axis:'horizontal'}}),disabled:selection.objectIds.length<3},{label:'垂直等间距分布',run:()=>setHistory({type:'command',command:{type:'object.distribute',ids:selection.objectIds,axis:'vertical'}}),disabled:selection.objectIds.length<3}],
     '路径':[{label:'联合',run:()=>applyBoolean('union'),disabled:selection.objectIds.length!==2},{label:'减去（前者减后者）',run:()=>applyBoolean('subtract'),disabled:selection.objectIds.length!==2},{label:'相交',run:()=>applyBoolean('intersect'),disabled:selection.objectIds.length!==2},{label:'排除',run:()=>applyBoolean('exclude'),disabled:selection.objectIds.length!==2}],
     '文字':[{label:'新建文字…',run:()=>setActiveTool('text')},{label:'编辑文字内容…',run:()=>{const object=selectedObjects[0];if(object?.kind==='text'){const g=object.geometry as {x:number;y:number;text:string;fontSize:number;fontFamily:string};const text=window.prompt('文字内容',g.text);if(text!==null)updateSelectedText({content:text});}},disabled:selectedObjects[0]?.kind!=='text'},{label:'字体与文字属性',run:()=>setRightOpen(true),hint:'在属性面板编辑字体、字号、字重和颜色'}],
-    '选择':[{label:'全选',run:()=>setSelection({objectIds:objects.map(o=>o.id),activeObjectId:objects[objects.length-1]?.id??null,artboardId:artboard.id}),disabled:!objects.length},{label:'取消选择',run:()=>setSelection(emptySelection()),disabled:!selection.objectIds.length}],
-    '滤镜':[{label:'高斯模糊…',run:()=>applySelectedFilter('gaussian-blur',Number(window.prompt('模糊半径（SVG 单位）','3')??'3')),disabled:!selection.objectIds.length},{label:'亮度增强…',run:()=>applySelectedFilter('brightness',Number(window.prompt('亮度倍率（1 为原始）','1.2')??'1.2')),disabled:!selection.objectIds.length},{label:'色相旋转…',run:()=>applySelectedFilter('hue-rotate',Number(window.prompt('色相角度（0–360）','90')??'90')),disabled:!selection.objectIds.length},{label:'新建亮度/对比度调整图层',run:addAdjustmentLayer}],
-    '视图':[{label:showRulers?'隐藏标尺':'显示标尺',run:()=>setShowRulers(v=>!v)},{label:'添加垂直参考线…',run:()=>addGuide('x')},{label:'添加水平参考线…',run:()=>addGuide('y')},{label:showGoldenGuides?'隐藏黄金比例辅助线':'显示黄金比例辅助线',run:()=>setShowGoldenGuides(v=>!v)},{label:'清除全部参考线',run:()=>setHistory({type:'command',command:{type:'guide.clear'}}),disabled:!(doc.guides?.length)},{label:'放大',run:()=>setViewport(v=>zoomAt(v,{x:500,y:350},v.zoom*1.2))},{label:'缩小',run:()=>setViewport(v=>zoomAt(v,{x:500,y:350},v.zoom/1.2))},{label:'重置视图',run:()=>setViewport(defaultViewport())}],
+    '选择':[{label:'全选当前画板',run:()=>setSelection({objectIds:objects.map(o=>o.id),activeObjectId:objects[objects.length-1]?.id??null,artboardId:artboard.id}),disabled:!objects.length,hint:'Ctrl+A'},{label:'取消选择',run:()=>setSelection(emptySelection()),disabled:!selection.objectIds.length,hint:'Ctrl+Shift+A'}],
+    '滤镜':[{label:'高斯模糊…',run:()=>promptSelectedFilter('gaussian-blur','模糊半径（SVG 单位）',3),disabled:!selectedObjects.some(o=>o.kind!=='image')},{label:'亮度增强…',run:()=>promptSelectedFilter('brightness','亮度倍率（1 为原始）',1.2),disabled:!selectedObjects.some(o=>o.kind!=='image')},{label:'色相旋转…',run:()=>promptSelectedFilter('hue-rotate','色相角度（0–360）',90),disabled:!selectedObjects.some(o=>o.kind!=='image')},{label:'新建亮度/对比度调整图层',run:addAdjustmentLayer}],
+    '视图':[{label:showRulers?'隐藏标尺':'显示标尺',run:()=>setShowRulers(v=>!v),hint:'Ctrl+R'},{label:'添加垂直参考线…',run:()=>addGuide('x')},{label:'添加水平参考线…',run:()=>addGuide('y')},{label:showGoldenGuides?'隐藏黄金比例辅助线':'显示黄金比例辅助线',run:()=>setShowGoldenGuides(v=>!v)},{label:'清除全部参考线',run:()=>setHistory({type:'command',command:{type:'guide.clear'}}),disabled:!(doc.guides?.length)},{label:'放大',run:()=>setViewport(v=>zoomAt(v,{x:500,y:350},v.zoom*1.2)),hint:'+'},{label:'缩小',run:()=>setViewport(v=>zoomAt(v,{x:500,y:350},v.zoom/1.2)),hint:'-'},{label:'适合全部画板',run:fitArtboards,hint:'Ctrl+0'},{label:'重置视图',run:()=>setViewport(defaultViewport())}],
     '窗口':[{label:leftOpen?'隐藏工具面板':'显示工具面板',run:()=>setLeftOpen(v=>!v)},{label:rightOpen?'隐藏属性面板':'显示属性面板',run:()=>setRightOpen(v=>!v)}],
-    '帮助':[{label:'关于 YutuGs-Photo',run:()=>window.alert('YutuGs-Photo 1.1.4-alpha\nSVG 对象内核 · YGS v2 文档模型')}]
+    '帮助':[{label:'关于 YutuGs-Photo',run:()=>window.alert('YutuGs-Photo 1.1.7-alpha\nSVG 矢量对象内核 · YGS v2 文档模型\nCMYK 输出目前通过独立 ICC 印前服务完成。')}]
   };
   useEffect(()=>{let alive=true;invoke<string[]>('list_installed_fonts').then(fonts=>{if(alive){const clean=[...new Set(fonts.map(x=>x.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-CN'));setInstalledFonts(clean);setFontLoadState(`已读取 ${clean.length} 个系统字体`);}}).catch(()=>{if(alive)setFontLoadState('当前为浏览器预览环境，使用常用字体列表；桌面版可读取系统字体');});return()=>{alive=false;};},[]);
   useEffect(()=>{const handler=(event:KeyboardEvent)=>{const target=event.target as HTMLElement|null;if(target&&(target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.isContentEditable))return;
@@ -277,12 +387,20 @@ export default function App() {
     else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='r'){event.preventDefault();setShowRulers(v=>!v);}
     else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='n'){event.preventDefault();newDocument();}
     else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='o'){event.preventDefault();openInputRef.current?.click();}
+    else if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='s'){event.preventDefault();void saveDocumentAs();}
     else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){event.preventDefault();void saveDocument();}
+    else if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='a'){event.preventDefault();setSelection(emptySelection());}
     else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='a'){event.preventDefault();setSelection({objectIds:objects.map(o=>o.id),activeObjectId:objects[objects.length-1]?.id??null,artboardId:artboard.id});}
+    else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='c'){event.preventDefault();copySelection();}
+    else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='x'){event.preventDefault();cutSelection();}
+    else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='v'){event.preventDefault();pasteClipboard();}
+    else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();duplicateSelection();}
+    else if((event.ctrlKey||event.metaKey)&&event.key==='0'){event.preventDefault();fitArtboards();}
+    else if(event.key==='+'||event.key==='='){event.preventDefault();setViewport(v=>zoomAt(v,{x:500,y:350},v.zoom*1.2));}
+    else if(event.key==='-'){event.preventDefault();setViewport(v=>zoomAt(v,{x:500,y:350},v.zoom/1.2));}
     else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();setHistory({type:event.shiftKey?'redo':'undo'});}
     else if(event.key.toLowerCase()==='b')setActiveTool('brush');else if(event.key.toLowerCase()==='e')setActiveTool('eraser');else if(event.key.toLowerCase()==='p')setActiveTool('pen');else if(event.key.toLowerCase()==='i')setActiveTool('eyedropper');else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='y'){event.preventDefault();setHistory({type:'redo'});}
   };const releaseSpace=(event:KeyboardEvent)=>{if(event.code==='Space')spacePressed.current=false;};const clearSpace=()=>{spacePressed.current=false;};window.addEventListener('keydown',handler);window.addEventListener('keyup',releaseSpace);window.addEventListener('blur',clearSpace);return()=>{window.removeEventListener('keydown',handler);window.removeEventListener('keyup',releaseSpace);window.removeEventListener('blur',clearSpace);};});
-  const fitArtboards=()=>{if(!stageRef.current||!doc.artboards.length)return;const bounds={minX:Math.min(...doc.artboards.map(b=>b.x)),minY:Math.min(...doc.artboards.map(b=>b.y)),maxX:Math.max(...doc.artboards.map(b=>b.x+b.width)),maxY:Math.max(...doc.artboards.map(b=>b.y+b.height))};const rect=stageRef.current.getBoundingClientRect(),width=bounds.maxX-bounds.minX,height=bounds.maxY-bounds.minY,zoom=Math.min(8,Math.max(.05,Math.min((rect.width-80)/width,(rect.height-80)/height)));setViewport({zoom,panX:(rect.width-width*zoom)/2-bounds.minX*zoom,panY:(rect.height-height*zoom)/2-bounds.minY*zoom});};
   const onWheel=(event:React.WheelEvent<HTMLDivElement>)=>{if(!event.altKey||!stageRef.current)return;event.preventDefault();const rect=stageRef.current.getBoundingClientRect();const anchor={x:event.clientX-rect.left,y:event.clientY-rect.top};const factor=Math.exp(-event.deltaY*0.002);setViewport(v=>zoomAt(v,anchor,v.zoom*factor));};
   const marquee=drag?.kind==='marquee'?{x:Math.min(drag.start.x,drag.current.x),y:Math.min(drag.start.y,drag.current.y),width:Math.abs(drag.current.x-drag.start.x),height:Math.abs(drag.current.y-drag.start.y)}:null;
   const previewBounds=useMemo(()=>{if(!Object.keys(previewTransforms).length)return selectionBounds;return unionBounds(selectedObjects.map(o=>({...o,transform:previewTransforms[o.id]??o.transform})).map(getObjectBounds).filter((b):b is NonNullable<typeof b>=>Boolean(b)));},[previewTransforms,selectionBounds,selectedObjects]);
@@ -299,8 +417,135 @@ export default function App() {
     </div>
     {showPrintWorkspace && <PrintColorWorkspace svg={buildSvg()} fileName={doc.name || 'YutuGs-Photo'} onClose={()=>setShowPrintWorkspace(false)} initialSettings={doc.colorManagement ? {renderingIntent:doc.colorManagement.renderingIntent,blackPointCompensation:doc.colorManagement.blackPointCompensation,totalInkLimit:doc.colorManagement.totalInkLimit} : undefined} onProfileReady={profile=>setHistory({type:'command',command:{type:'document.colorManagement.update',patch:{outputCmykProfile:{name:profile.description,sha256:profile.sha256}}}})} onSettingsChange={settings=>setHistory({type:'command',command:{type:'document.colorManagement.update',patch:settings}})}/> }
     {showAiWorkspace && <div className="workspace-overlay"><AiWorkspace onBack={()=>setShowAiWorkspace(false)} onApply={blob=>void addAiImageAsLayer(blob)}/></div>}
-    {showNewDocDialog&&<div className="modal-backdrop"><section className="new-document-dialog"><header><b>新建文档</b><button onClick={()=>setShowNewDocDialog(false)}>×</button></header><div className="new-doc-tabs"><button className={newDocMode==='photo'?'active':''} onClick={()=>{setNewDocMode('photo');setNewDocColor('RGB');setNewDocUnits('px');setNewDocWidth(1920);setNewDocHeight(1080);setNewDocArtboards(1);}}>Photoshop 2026 · 新建文档</button><button className={newDocMode==='illustration'?'active':''} onClick={()=>{setNewDocMode('illustration');setNewDocColor('CMYK');setNewDocUnits('mm');setNewDocWidth(210);setNewDocHeight(297);setNewDocArtboards(1);}}>Illustrator 2025 · 新建文档</button></div><div className="new-doc-layout"><div className="new-doc-presets"><b>预设</b>{(newDocMode==='photo'?[['照片 · 1920 × 1080',1920,1080,'px'],['4K UHD · 3840 × 2160',3840,2160,'px'],['社交媒体 · 1080 × 1080',1080,1080,'px'],['A4 · 210 × 297 mm',210,297,'mm']]:[['A4 · 210 × 297 mm',210,297,'mm'],['A3 · 297 × 420 mm',297,420,'mm'],['A5 · 148 × 210 mm',148,210,'mm'],['自定义 · 1920 × 1080',1920,1080,'px']]).map(([label,w,h,u])=><button key={String(label)} onClick={()=>{setNewDocWidth(Number(w));setNewDocHeight(Number(h));setNewDocUnits(u as 'px'|'mm'|'cm'|'in');}}>{String(label)}</button>)}</div><div className="new-doc-settings"><label>文档名称<input value={newDocName} onChange={e=>setNewDocName(e.target.value)}/></label><div className="new-doc-row"><label>宽度<input type="number" min="1" value={newDocWidth} onChange={e=>setNewDocWidth(Number(e.target.value))}/></label><label>高度<input type="number" min="1" value={newDocHeight} onChange={e=>setNewDocHeight(Number(e.target.value))}/></label><label>单位<select value={newDocUnits} onChange={e=>setNewDocUnits(e.target.value as typeof newDocUnits)}><option value="px">像素</option><option value="mm">毫米</option><option value="cm">厘米</option><option value="in">英寸</option></select></label></div><div className="new-doc-row"><label>分辨率（PPI）<input type="number" min="1" value={newDocDpi} onChange={e=>setNewDocDpi(Number(e.target.value))}/></label><label>颜色模式<select value={newDocColor} onChange={e=>setNewDocColor(e.target.value as typeof newDocColor)}><option value="RGB">RGB</option><option value="CMYK">CMYK（需 ICC 印前配置）</option><option value="Grayscale">灰度</option></select></label></div><div className="new-doc-row"><label>画板数量<input type="number" min="1" max="20" value={newDocArtboards} onChange={e=>setNewDocArtboards(Math.min(20,Math.max(1,Number(e.target.value)||1)))}/></label><label>背景内容<select value={newDocBackground} onChange={e=>setNewDocBackground(e.target.value as typeof newDocBackground)}><option value="white">白色</option><option value="transparent">透明</option><option value="black">黑色</option></select></label></div><p>{newDocMode==='photo'?'Photoshop 风格：像素画布、分辨率、颜色模式和背景内容设置。':'Illustrator 风格：物理单位、多个独立画板和印刷色彩元数据。'} CMYK 文档可配置输出 ICC，并通过印前工作区执行转换、软打样和四色分色；编辑器的实时屏幕渲染仍为 RGB。</p></div></div><footer><button onClick={()=>setShowNewDocDialog(false)}>取消</button><button className="primary-action" onClick={createNewDocument}>创建</button></footer></section></div>}
+    {showNewDocDialog&&<div className="modal-backdrop"><section className="new-document-dialog new-document-dialog-expanded"><header><div><b>新建文档</b><small>按用途选择预设，再配置完整文档参数</small></div><button onClick={()=>setShowNewDocDialog(false)}>×</button></header>
+      <div className="new-doc-tabs"><button className={newDocMode==='photo'?'active':''} onClick={()=>{setNewDocMode('photo');setNewDocCategory('Photo');setNewDocColor('RGB');setNewDocUnits('px');setNewDocWidth(1920);setNewDocHeight(1080);setNewDocDpi(300);setNewDocOrientation('landscape');setNewDocArtboards(1);setNewDocBitDepth(8);setNewDocProfile('sRGB IEC61966-2.1');}}>Photoshop 2026 · 图像文档设置</button><button className={newDocMode==='illustration'?'active':''} onClick={()=>{setNewDocMode('illustration');setNewDocCategory('Print');setNewDocColor('CMYK');setNewDocUnits('mm');setNewDocWidth(210);setNewDocHeight(297);setNewDocDpi(300);setNewDocOrientation('portrait');setNewDocArtboards(1);setNewDocBitDepth(8);setNewDocProfile('请按印厂 ICC 配置');}}>Illustrator 2025 · 矢量/画板文档</button></div>
+      <div className="new-doc-category-row">{(newDocMode==='photo'?['Photo','Print','Art & Illustration','Web','Mobile','Film & Video']:['Print','Web','Mobile','Film & Video','Art & Illustration']).map(category=><button key={category} className={newDocCategory===category?'active':''} onClick={()=>{const c=category as typeof newDocCategory;setNewDocCategory(c);if(c==='Print'){setNewDocColor('CMYK');setNewDocUnits('mm');setNewDocWidth(210);setNewDocHeight(297);setNewDocDpi(300);setNewDocOrientation('portrait');setNewDocProfile('请按印厂 ICC 配置');}else if(c==='Web'){setNewDocColor('RGB');setNewDocUnits('px');setNewDocWidth(1920);setNewDocHeight(1080);setNewDocDpi(72);setNewDocOrientation('landscape');setNewDocProfile('sRGB IEC61966-2.1');}else if(c==='Mobile'){setNewDocColor('RGB');setNewDocUnits('px');setNewDocWidth(1170);setNewDocHeight(2532);setNewDocDpi(72);setNewDocOrientation('portrait');setNewDocProfile('sRGB IEC61966-2.1');}else if(c==='Film & Video'){setNewDocColor('RGB');setNewDocUnits('px');setNewDocWidth(1920);setNewDocHeight(1080);setNewDocDpi(72);setNewDocOrientation('landscape');setNewDocProfile('Rec.709 / sRGB');}else if(c==='Photo'){setNewDocColor('RGB');setNewDocUnits('px');setNewDocWidth(6000);setNewDocHeight(4000);setNewDocDpi(300);setNewDocOrientation('landscape');setNewDocProfile('sRGB IEC61966-2.1');}else{setNewDocColor('RGB');setNewDocUnits('px');setNewDocWidth(3000);setNewDocHeight(3000);setNewDocDpi(300);setNewDocOrientation('landscape');setNewDocProfile('sRGB IEC61966-2.1');}}}>{category}</button>)}</div>
+      <div className="new-doc-layout"><div className="new-doc-presets"><b>{newDocCategory} · 空白文档预设</b>{(newDocCategory==='Print'?[['A4 · 210 × 297 mm',210,297,'mm'],['A3 · 297 × 420 mm',297,420,'mm'],['A5 · 148 × 210 mm',148,210,'mm'],['A2 · 420 × 594 mm',420,594,'mm'],['名片 · 90 × 54 mm',90,54,'mm'],['海报 · 420 × 594 mm',420,594,'mm']]:newDocCategory==='Mobile'?[['手机竖屏 · 1170 × 2532',1170,2532,'px'],['手机方屏 · 1080 × 1080',1080,1080,'px'],['平板 · 2048 × 2732',2048,2732,'px']]:newDocCategory==='Web'?[['Full HD · 1920 × 1080',1920,1080,'px'],['4K UHD · 3840 × 2160',3840,2160,'px'],['网页横幅 · 1440 × 900',1440,900,'px'],['社交媒体 · 1080 × 1080',1080,1080,'px']]:newDocCategory==='Film & Video'?[['HD · 1920 × 1080',1920,1080,'px'],['4K UHD · 3840 × 2160',3840,2160,'px'],['竖屏视频 · 1080 × 1920',1080,1920,'px']]:newDocCategory==='Art & Illustration'?[['插画 · 3000 × 3000',3000,3000,'px'],['漫画页 · A4',210,297,'mm'],['数字绘画 · 4000 × 3000',4000,3000,'px']]:[['默认 · 1920 × 1080',1920,1080,'px'],['横向照片 · 6000 × 4000',6000,4000,'px'],['方形照片 · 3000 × 3000',3000,3000,'px'],['4K UHD · 3840 × 2160',3840,2160,'px'],['A4 · 210 × 297 mm',210,297,'mm']]).map(([label,w,h,u])=><button key={String(label)} onClick={()=>{setNewDocWidth(Number(w));setNewDocHeight(Number(h));setNewDocUnits(u as 'px'|'mm'|'cm'|'in');setNewDocOrientation(Number(w)>=Number(h)?'landscape':'portrait');}}>{String(label)}</button>)}</div>
+      <div className="new-doc-settings"><label>文档名称<input value={newDocName} onChange={e=>setNewDocName(e.target.value)}/></label>
+        <div className="new-doc-row"><label>宽度<input type="number" min="1" value={newDocWidth} onChange={e=>setNewDocWidth(Number(e.target.value))}/></label><label>高度<input type="number" min="1" value={newDocHeight} onChange={e=>setNewDocHeight(Number(e.target.value))}/></label><label>单位<select value={newDocUnits} onChange={e=>setNewDocUnits(e.target.value as typeof newDocUnits)}><option value="px">像素</option><option value="mm">毫米</option><option value="cm">厘米</option><option value="in">英寸</option></select></label></div>
+        <div className="new-doc-row"><label>方向<select value={newDocOrientation} onChange={e=>{const next=e.target.value as 'landscape'|'portrait';if(next!==newDocOrientation){setNewDocWidth(newDocHeight);setNewDocHeight(newDocWidth);}setNewDocOrientation(next);}}><option value="landscape">横向</option><option value="portrait">纵向</option></select></label><label>分辨率（PPI）<input type="number" min="1" max="9600" value={newDocDpi} onChange={e=>setNewDocDpi(Number(e.target.value))}/></label><label>颜色模式<select value={newDocColor} onChange={e=>{const mode=e.target.value as typeof newDocColor;setNewDocColor(mode);if(mode==='RGB')setNewDocProfile('sRGB IEC61966-2.1');if(mode==='CMYK')setNewDocProfile('请按印厂 ICC 配置');}}><option value="RGB">RGB 颜色</option><option value="CMYK">CMYK 颜色（文档标记/印前转换）</option><option value="Grayscale">灰度</option></select></label></div>
+        <div className="new-doc-row"><label>位深<select value={newDocBitDepth} onChange={e=>setNewDocBitDepth(Number(e.target.value) as 8|16|32)}><option value={8}>8 位</option><option value={16}>16 位</option><option value={32}>32 位</option></select></label><label>背景内容<select value={newDocBackground} onChange={e=>setNewDocBackground(e.target.value as typeof newDocBackground)}><option value="white">白色</option><option value="transparent">透明</option><option value="black">背景色（黑色）</option><option value="custom">自定义颜色</option></select></label><label>颜色配置文件<input value={newDocProfile} onChange={e=>setNewDocProfile(e.target.value)} placeholder="配置文件名称"/></label>{newDocBackground==='custom'&&<label>自定义背景色<input type="color" value={newDocCustomBackground} onChange={e=>setNewDocCustomBackground(e.target.value)}/></label>}</div>
+        {newDocMode==='photo'?<><div className="new-doc-subheading">高级选项 · Photoshop 文档</div><div className="new-doc-row"><label>像素长宽比<select value={newDocPixelAspect} onChange={e=>setNewDocPixelAspect(e.target.value as typeof newDocPixelAspect)}><option value="square">方形像素</option><option value="1.33">D1/DV NTSC 1.33</option><option value="0.9">D1/DV NTSC 0.9</option><option value="custom">自定义</option></select></label>{newDocPixelAspect==='custom'&&<label>自定义比例<input type="number" min="0.01" step="0.01" value={newDocPixelAspectCustom} onChange={e=>setNewDocPixelAspectCustom(Number(e.target.value))}/></label>}<label>背景默认值<select value={newDocBackground} onChange={e=>setNewDocBackground(e.target.value as typeof newDocBackground)}><option value="white">白色</option><option value="black">背景色</option><option value="transparent">透明</option><option value="custom">自定义颜色</option></select></label></div></>:<><div className="new-doc-subheading">画板与印刷选项 · Illustrator 文档</div><div className="new-doc-row"><label>画板数量<input type="number" min="1" max="100" value={newDocArtboards} onChange={e=>setNewDocArtboards(Math.min(100,Math.max(1,Number(e.target.value)||1)))}/></label><label>画板列数<input type="number" min="1" max="20" value={newDocArtboardColumns} onChange={e=>setNewDocArtboardColumns(Math.min(20,Math.max(1,Number(e.target.value)||1)))}/></label><label>画板间距（px）<input type="number" min="0" max="2000" value={newDocArtboardSpacing} onChange={e=>setNewDocArtboardSpacing(Math.max(0,Number(e.target.value)||0))}/></label></div><div className="new-doc-row"><label>出血上（mm）<input type="number" min="0" step="0.1" value={newDocBleed.top} onChange={e=>setNewDocBleed(v=>({...v,top:Math.max(0,Number(e.target.value)||0)}))}/></label><label>出血右（mm）<input type="number" min="0" step="0.1" value={newDocBleed.right} onChange={e=>setNewDocBleed(v=>({...v,right:Math.max(0,Number(e.target.value)||0)}))}/></label><label>出血下（mm）<input type="number" min="0" step="0.1" value={newDocBleed.bottom} onChange={e=>setNewDocBleed(v=>({...v,bottom:Math.max(0,Number(e.target.value)||0)}))}/></label><label>出血左（mm）<input type="number" min="0" step="0.1" value={newDocBleed.left} onChange={e=>setNewDocBleed(v=>({...v,left:Math.max(0,Number(e.target.value)||0)}))}/></label></div><div className="new-doc-row"><label>栅格效果分辨率<select value={newDocRasterPpi} onChange={e=>setNewDocRasterPpi(Number(e.target.value) as 72|150|300)}><option value={72}>屏幕（72 PPI）</option><option value={150}>中（150 PPI）</option><option value={300}>高（300 PPI）</option></select></label><label>预览模式<select value={newDocPreviewMode} onChange={e=>setNewDocPreviewMode(e.target.value as typeof newDocPreviewMode)}><option value="default">默认（矢量）</option><option value="pixel">像素预览</option><option value="overprint">叠印预览（设置记录）</option></select></label></div><label className="new-doc-check"><input type="checkbox" checked={newDocPixelGrid} onChange={e=>setNewDocPixelGrid(e.target.checked)}/> 将新对象对齐到像素网格（设置记录）</label></>}
+        <p>说明：当前编辑内核为 SVG 矢量对象与独立位图资产。颜色模式、位深、像素长宽比、栅格效果和预览模式在本版本作为文档创建设置保存；尚不代表编辑器已经具备 Photoshop 式原生高位深像素编辑管线或 Illustrator 完整叠印预览。CMYK 颜色仍需在印前工作区加载实际输出 ICC 后执行转换与分色。</p>
+      </div></div><footer><button onClick={()=>setShowNewDocDialog(false)}>取消</button><button className="primary-action" onClick={createNewDocument}>创建文档</button></footer></section></div>}
     {showPackagingDialog && <div className="modal-backdrop"><section className="packaging-dialog"><header><b>新建包装模板</b><button onClick={()=>setShowPackagingDialog(false)}>关闭</button></header><label>包装类型<select value={packagingType} onChange={event=>{const type=event.target.value as BagType;setPackagingType(type);const first=packagingTemplates.find(item=>item.bagType===type);if(first)setPackagingTemplateId(first.id);}}>{(['常规编织袋','方底编织袋','常规 PE 袋'] as BagType[]).map(type=><option key={type}>{type}</option>)}</select></label><label>规格<select value={packagingTemplateId} onChange={event=>setPackagingTemplateId(event.target.value)}>{packagingTemplates.filter(item=>item.bagType===packagingType).map(item=><option key={item.id} value={item.id}>{getTemplateLabel(item)}</option>)}</select></label><label>出血量<select value={packagingBleed} onChange={event=>setPackagingBleed(Number(event.target.value))}><option value={2}>2 mm</option><option value={3}>3 mm</option><option value={5}>5 mm</option></select></label><p>按 300 DPI 换算为文档像素。此模板提供展开尺寸与 M 折参数；刀版、封边、制袋厂工艺仍需按实际生产规格校准。</p><button className="primary-action" onClick={createPackagingDocument}>创建包装画布</button></section></div>}
     <footer className="statusbar"><span>YGS v2 文档模型</span><span>SVG Renderer · 非 Canvas 2D</span><span>{doc.artboards.length} 个画板 · {doc.guides?.length ?? 0} 条参考线</span><div><button onClick={()=>setLeftOpen(v=>!v)}><PanelLeft size={14}/></button><button onClick={()=>setRightOpen(v=>!v)}><PanelRight size={14}/></button></div></footer>
   </div>;
+=======
+    
+    const list = Object.values(objects).filter(object => object.layerId === layerId && object.visible);
+    const erasers = list.filter((object): object is VectorObject => object.kind === 'path' && (object as VectorObject).compositeMode === 'erase');
+    const maskId = `eraser-mask-${artboard.id}-${layerId}`;
+    
+    layerGroups.push(
+      <g key={layerId} opacity={layer?.opacity ?? 1} mask={erasers.length ? `url(#${maskId})` : undefined}>
+        {list.filter(object => !erasers.includes(object as VectorObject)).map(object => renderObject(object, assets, previewTransforms[object.id], previewProjectives[object.id]))}
+      </g>
+    );
+  }
+  
+  const defs = <defs>
+    {artboard.layerIds.flatMap(layerId => {
+      const list = Object.values(objects).filter(object => object.layerId === layerId && object.visible);
+      const erasers = list.filter((o): o is VectorObject => o.kind === 'path' && (o as VectorObject).compositeMode === 'erase');
+      const adjustmentsForLayer = adjustments[layerId] ?? [];
+      
+      return [
+        ...(erasers.length ? [
+          <mask key={`mask-${layerId}`} id={`eraser-mask-${artboard.id}-${layerId}`} maskUnits="userSpaceOnUse" x="0" y="0" width={artboard.width} height={artboard.height}>
+            <rect width="100%" height="100%" fill="white"/>
+            {erasers.map(item => <path key={item.id} d={pathData(item.geometry)} transform={`matrix(${item.transform.join(' ')})`} stroke="black" strokeWidth={item.strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill="none"/>)}
+          </mask>
+        ] : []),
+        ...list.filter((o): o is VectorObject => o.kind !== 'image' && Boolean(o.filter)).map(o => filterMarkup(`object-filter-${o.id}`, o.filter!)),
+        ...(adjustmentsForLayer.length ? [adjustmentFilter(`adjustment-filter-${artboard.id}-${layerId}`, adjustmentsForLayer)] : [])
+      ];
+    })}
+  </defs>;
+
+  return (
+    <svg 
+      className="artboard-svg" 
+      width={artboard.width * viewport.zoom} 
+      height={artboard.height * viewport.zoom} 
+      viewBox={`0 0 ${artboard.width} ${artboard.height}`} 
+      style={{
+        left: viewport.panX + artboard.x * viewport.zoom,
+        top: viewport.panY + artboard.y * viewport.zoom,
+        background: artboard.background === 'transparent' ? 'transparent' : artboard.background,
+        outline: active ? '1px solid #8270b9' : '1px solid #596170',
+        pointerEvents: 'none'
+      }}
+    >
+      {defs}
+      <rect width={artboard.width} height={artboard.height} fill={artboard.background === 'transparent' ? 'transparent' : artboard.background}/>
+      {layerGroups}
+      
+      {packaging ? (() => {
+        const bleed = artboard.width * (packaging.bleedMm / 10) / (packaging.widthCm + packaging.bleedMm / 5),
+          trimWidth = artboard.width - bleed * 2,
+          foldX = bleed + packaging.leftMFoldCm / packaging.widthCm * trimWidth;
+        return (
+          <g pointerEvents="none">
+            <rect x={bleed} y={bleed} width={trimWidth} height={artboard.height - bleed * 2} fill="none" stroke="#d95a5a" strokeWidth={1 / viewport.zoom} strokeDasharray={`${6 / viewport.zoom} ${4 / viewport.zoom}`}/>
+            {packaging.leftMFoldCm ? (
+              <>
+                <rect x={bleed} y={bleed} width={foldX - bleed} height={artboard.height - bleed * 2} fill="#2b9bd8" opacity=".08"/>
+                <line x1={foldX} y1={bleed} x2={foldX} y2={artboard.height - bleed} stroke="#2b9bd8" strokeWidth={2 / viewport.zoom} strokeDasharray={`${8 / viewport.zoom} ${5 / viewport.zoom}`}/>
+              </>
+            ) : null}
+          </g>
+        );
+      })() : null}
+      
+      {guides.map(guide => 
+        guide.axis === 'x' 
+          ? <line key={guide.id} x1={guide.position} y1={0} x2={guide.position} y2={artboard.height} stroke="#00c8ff" strokeWidth={1 / viewport.zoom}/> 
+          : <line key={guide.id} x1={0} y1={guide.position} x2={artboard.width} y2={guide.position} stroke="#00c8ff" strokeWidth={1 / viewport.zoom}/>
+      )}
+      
+      {showGoldenGuides && (
+        <g stroke="#d4a84b" strokeWidth={1 / viewport.zoom} strokeDasharray={`${5 / viewport.zoom} ${4 / viewport.zoom}`} opacity=".8">
+          <line x1={artboard.width * .382} y1={0} x2={artboard.width * .382} y2={artboard.height}/>
+          <line x1={artboard.width * .618} y1={0} x2={artboard.width * .618} y2={artboard.height}/>
+          <line x1={0} y1={artboard.height * .382} x2={artboard.width} y2={artboard.height * .382}/>
+          <line x1={0} y1={artboard.height * .618} x2={artboard.width} y2={artboard.height * .618}/>
+        </g>
+      )}
+      
+      {active && selectionBounds && (
+        <g className="selection-overlay" pointerEvents="none">
+          <rect 
+            x={selectionBounds.minX} 
+            y={selectionBounds.minY} 
+            width={selectionBounds.maxX - selectionBounds.minX} 
+            height={selectionBounds.maxY - selectionBounds.minY} 
+            fill="none" 
+            stroke="#4c9ffe" 
+            strokeWidth={1.5 / viewport.zoom} 
+            strokeDasharray={`${5 / viewport.zoom} ${3 / viewport.zoom}`}
+          />
+          {([
+            {x: selectionBounds.minX, y: selectionBounds.minY},
+            {x: (selectionBounds.minX + selectionBounds.maxX) / 2, y: selectionBounds.minY},
+            {x: selectionBounds.maxX, y: selectionBounds.minY},
+            {x: selectionBounds.maxX, y: (selectionBounds.minY + selectionBounds.maxY) / 2},
+            {x: selectionBounds.maxX, y: selectionBounds.maxY},
+            {x: (selectionBounds.minX + selectionBounds.maxX) / 2, y: selectionBounds.maxY},
+            {x: selectionBounds.minX, y: selectionBounds.maxY},
+            {x: selectionBounds.minX, y: (selectionBounds.minY + selectionBounds.maxY) / 2}
+          ] as const).map((p, i) => (
+            <rect key={i} x={p.x - 4 / viewport.zoom} y={p.y - 4 / viewport.zoom} width={8 / viewport.zoom} height={8 / viewport.zoom} fill="#fff" stroke="#2687ef" strokeWidth={1.5 / viewport.zoom}/>
+          ))}
+          <path d={`M ${(selectionBounds.minX + selectionBounds.maxX) / 2} ${selectionBounds.minY} v ${-28 / viewport.zoom}`} stroke="#2687ef" strokeWidth={1 / viewport.zoom}/>
+          <circle cx={(selectionBounds.minX + selectionBounds.maxX) / 2} cy={selectionBounds.minY - 36 / viewport.zoom} r={5 / viewport.zoom} fill="#fff" stroke="#2687ef" strokeWidth={1.5 / viewport.zoom}/>
+        </g>
+      )}
+      
+      {active && marquee && (
+        <rect x={marquee.x} y={marquee.y} width={marquee.width} height={marquee.height} fill="#4c9ffe" fillOpacity=".12" stroke="#4c9ffe" strokeDasharray="5 3"/>
+      )}
+    </svg>
+  );
+>>>>>>> 65e80f31a0cf00e5d88064b2671b80a199a7074f
 }

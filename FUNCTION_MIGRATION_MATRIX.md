@@ -1,4 +1,4 @@
-# 0.4.9 → 1.1.4-alpha 功能迁移矩阵（阶段性）
+# 0.4.9 → 1.1.5-alpha 功能迁移矩阵（阶段性）
 
 依据：用户提供的 `YutuGs-Photo-0.4.9-Menu-New-Document-Update(1).zip`。旧版仅作功能、菜单和交互行为对照；新版本以 alpha.4 演进代码线为基础，不复制 Canvas 2D 编辑内核。
 
@@ -56,3 +56,12 @@
 | CMYK 分色 | CMYK TIFF + C/M/Y/K 四张 TIFF + 分色 JSON + ICC 副本 | 当前基于 SVG 栅格化；无 PDF/X、专色、DeviceLink、陷印、网点/RIP |
 | 总墨量 | TAC 统计及保黑 CMY 比例限制 | 通用后处理；不等同印厂 DeviceLink 黑版生成 |
 | 透视对象印前输出 | CairoSVG 检测 matrix3d 后返回 422 | 避免错误输出；透视印前栅格化待后续实现 |
+
+
+## 1.1.5-alpha 菜单/快捷键专项纠正
+
+- 完整逐项状态表见 `MENU_SHORTCUT_AUDIT-1.1.5-alpha.md`。
+- 新建文档已拆分 Photoshop 风格图像设置和 Illustrator 风格矢量/画板设置；增加用途分类、预设、方向、位深、颜色配置、像素长宽比、画板列数/间距、四边出血、栅格效果和预览模式设置。新建设置以可选 `documentSetup` 字段写入 YGS v2。
+- 重要限制：这些新参数中的位深、像素长宽比、出血、栅格效果、叠印预览和像素网格目前仅保存元数据；当前画板仍由 SVG 对象内核承载，不是原生 Photoshop 位图文档或 Illustrator AI 文档。
+- 编辑菜单增加内部对象剪切/复制/粘贴、重复；另存为仅支持 YGS。未实现的图像大小、打开为、打印、关闭全部和退出仍禁用。
+- 本轮未安装 npm 依赖，完整 React/Vite、Vitest、Rust/Tauri 和 Windows 安装验证未执行；见 `VALIDATION-1.1.5-alpha.md`。

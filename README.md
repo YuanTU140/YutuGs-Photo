@@ -1,9 +1,29 @@
 # YutuGs-Photo
 
-**版本：1.1.4-alpha**  
+**版本：1.1.7-alpha**  
 **交付类型：完整源码替换包**
 
-本版本延续 alpha.4 演进代码线，以 `1.1.3-alpha` 为当前代码基线；0.4.9 工程只作菜单、功能和交互行为对照，不作代码开发基线。每次交付均为完整源码替换包。
+本版本延续 alpha.4 演进代码线，以 `1.1.5-alpha` 为当前代码基线；0.4.9 工程只作菜单、功能和交互行为对照，不作代码开发基线。每次交付均为完整源码替换包。
+
+## 1.1.7-alpha 本轮更新：SVG 画板渲染参数修正
+
+- `SvgArtboard.tsx` 的 `pathData` 增加可选 `_id?: string` 参数，并在对象路径与橡皮擦蒙版路径调用时传入对应对象 ID。
+- `filterMarkup` 中高斯模糊半径、亮度斜率和色相旋转值统一显式转换为字符串，避免 SVG 数值属性序列化类型不一致。
+- `adjustmentFilter` 中模糊半径、亮度/对比度斜率与截距、色相旋转值统一显式转换为字符串。
+- 保留 1.1.5-alpha 已有的 `previewProjectives`、透视矩阵 SVG 渲染和 `transformMode` 控制，不以用户提供的基础片段覆盖这些已有能力。
+- 本次仅修正 SVG 渲染器参数与调用，不宣称新增滤镜种类或完整图像滤镜内核。
+
+
+## 1.1.5-alpha 本轮更新：菜单与新建文档纠正
+
+- 以 1.1.4-alpha 为唯一代码起点，针对顶部全部 12 个菜单、工具区、属性区、工作区按钮和快捷键进行逐项盘点；详细状态见 `MENU_SHORTCUT_AUDIT-1.1.5-alpha.md`。
+- 重做新建文档参数界面：Photoshop 风格图像文档设置与 Illustrator 风格矢量/画板文档设置分开呈现；增加 Photo、Print、Art & Illustration、Web、Mobile、Film & Video 分类及用途预设。
+- 新建参数增加方向、单位、PPI、颜色模式、位深、颜色配置名称、像素长宽比；Illustrator 设置增加画板数量/列数/间距、四边出血、栅格效果分辨率、预览模式和像素网格选项。多画板按行列间距初始化。
+- 新建参数写入 YGS v2 `documentSetup` 并随文档保存。注意：位深、像素长宽比、出血、栅格效果、叠印预览和像素网格目前属于文档设置元数据，不表示对应的完整像素/印前内核已经实现。
+- 编辑菜单新增内部对象剪切/复制/粘贴、重复；新增 Ctrl/Cmd+X/C/V/D、Ctrl/Cmd+Shift+S、Ctrl/Cmd+Shift+A、Ctrl/Cmd+0 等快捷键。
+- 另存为当前仅支持另存 YGS；图像大小/重采样、打开为、打印、多文档关闭和桌面退出仍明确禁用，不伪装成可用功能。
+- 滤镜菜单修正为支持多选矢量对象，并拒绝无效数值；图像对象滤镜仍未实现。
+- 版本号更新为 1.1.5-alpha。
 
 ## 1.1.4-alpha 本轮更新
 
@@ -69,7 +89,7 @@ npm run build
 npm run tauri dev
 ```
 
-AI 服务位于 `local-ai-service/`，模型权重不随源码包提供。印前服务位于 `local-print-service/`，需独立启动。完整 React/Vite、Rust/Tauri 和 Windows 安装验证情况见 `VALIDATION-1.1.4-alpha.md`。
+AI 服务位于 `local-ai-service/`，模型权重不随源码包提供。印前服务位于 `local-print-service/`，需独立启动。完整 React/Vite、Rust/Tauri 和 Windows 安装验证情况见 `VALIDATION-1.1.7-alpha.md`。
 
 ## 尚未完成
 

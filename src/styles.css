@@ -47,3 +47,19 @@
 
 /* 1.1.4-alpha transform controls */
 .transform-panel{display:grid;gap:8px;margin:8px 0 14px;padding:10px;border:1px solid #485267;border-radius:7px;background:#1b222c;color:#dce4ef}.transform-mode-row,.transform-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.transform-mode-row{grid-template-columns:repeat(3,minmax(0,1fr))}.transform-mode-row button,.transform-action-grid button{padding:7px 5px;border:1px solid #485267;border-radius:5px;background:#303847;color:#dce4ef;font-size:10px;cursor:pointer}.transform-mode-row button.active{background:#57457f;border-color:#9076ca;color:#fff}.transform-panel small{color:#94a1b3;font-size:9px;line-height:1.6}
+
+/* Expanded Photoshop / Illustrator style new-document setup */
+.new-document-dialog-expanded{width:min(1120px,97vw);}
+.new-document-dialog-expanded header>div{display:grid;gap:4px}
+.new-document-dialog-expanded header small{font-size:11px;color:#9eacbf;font-weight:400}
+.new-doc-category-row{display:flex;flex-wrap:wrap;gap:6px;padding:12px 0 0}
+.new-doc-category-row button{padding:7px 10px;border:1px solid #3e4959;border-radius:5px;background:#1b222c;color:#bfcada;cursor:pointer;font-size:11px}
+.new-doc-category-row button.active{background:#43365e;border-color:#9278d4;color:#fff}
+.new-document-dialog-expanded .new-doc-layout{grid-template-columns:205px minmax(0,1fr);gap:16px}
+.new-document-dialog-expanded .new-doc-settings{gap:9px}
+.new-document-dialog-expanded .new-doc-row{grid-template-columns:repeat(3,minmax(0,1fr))}
+.new-document-dialog-expanded .new-doc-row:has(label:nth-child(4)){grid-template-columns:repeat(4,minmax(0,1fr))}
+.new-doc-subheading{padding-top:8px;border-top:1px solid #3d4756;color:#d8c9ff;font-size:11px;font-weight:700}
+.new-doc-settings .new-doc-check{display:flex;align-items:center;gap:8px}
+.new-doc-settings .new-doc-check input{width:auto}
+@media(max-width:760px){.new-document-dialog-expanded .new-doc-layout{grid-template-columns:1fr}.new-document-dialog-expanded .new-doc-row,.new-document-dialog-expanded .new-doc-row:has(label:nth-child(4)){grid-template-columns:repeat(2,minmax(0,1fr))}}

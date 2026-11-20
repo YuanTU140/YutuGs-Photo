@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import type { Artboard, EditorObject, VectorObject, RasterAsset, Guide, Layer, YgsDocument, Adjustment } from '../core/model';
 import type { Viewport } from '../core/viewport';
-import { projectiveToCssMatrix3d, projectiveIdentity } from '../core/projective';
 
+<<<<<<< HEAD
 type Props = { artboard: Artboard; objects: Record<string, EditorObject>; assets?: Record<string, RasterAsset>; viewport: Viewport; previewTransforms?: Record<string, EditorObject['transform']>; previewProjectives?: Record<string, NonNullable<EditorObject['projectiveTransform']>>; selectionBounds?: { minX: number; minY: number; maxX: number; maxY: number } | null; marquee?: { x: number; y: number; width: number; height: number } | null; guides?: Guide[]; showGoldenGuides?: boolean; packaging?: YgsDocument['packaging']; layers?: Layer[]; adjustments?: Record<string, Adjustment[]>; active?: boolean; transformMode?: 'free'|'perspective'|'distort' };
-function pathData(g: any) { return g.segments.map((segment: any, i: number) => { const target=g.nodes[segment.to]?.anchor;if(!target)return '';if(segment.type==='move')return `${i?' ':' '}M ${target.x} ${target.y}`;if(segment.type==='line')return `L ${target.x} ${target.y}`;if(segment.type==='quadratic'&&segment.control)return `Q ${segment.control.x} ${segment.control.y} ${target.x} ${target.y}`;if(segment.type==='cubic'&&segment.from!==undefined){const from=g.nodes[segment.from],c1=from?.outHandle??from?.anchor,c2=g.nodes[segment.to]?.inHandle??target;return `C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${target.x} ${target.y}`;}return '';}).join(' ')+(g.closed?' Z':''); }
+function pathData(g: any, _id?: string) { return g.segments.map((segment: any, i: number) => { const target=g.nodes[segment.to]?.anchor;if(!target)return '';if(segment.type==='move')return `${i?' ':' '}M ${target.x} ${target.y}`;if(segment.type==='line')return `L ${target.x} ${target.y}`;if(segment.type==='quadratic'&&segment.control)return `Q ${segment.control.x} ${segment.control.y} ${target.x} ${target.y}`;if(segment.type==='cubic'&&segment.from!==undefined){const from=g.nodes[segment.from],c1=from?.outHandle??from?.anchor,c2=g.nodes[segment.to]?.inHandle??target;return `C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${target.x} ${target.y}`;}return '';}).join(' ')+(g.closed?' Z':''); }
 function renderObject(object: EditorObject, assets: Record<string, RasterAsset>, previewTransform?: EditorObject['transform'], previewProjective?: NonNullable<EditorObject['projectiveTransform']>) {
   const projective=previewProjective??object.projectiveTransform;
   const projectiveStyle=projective&&!projectiveIdentity(projective)?{transform:projectiveToCssMatrix3d(projective),transformOrigin:'0 0',transformBox:'view-box' as const}:undefined;
@@ -15,13 +15,247 @@ function renderObject(object: EditorObject, assets: Record<string, RasterAsset>,
   if(vector.kind==='rect'){const g=vector.geometry as {x:number;y:number;width:number;height:number};shape=<rect x={g.x} y={g.y} width={g.width} height={g.height} {...common}/>;}
   else if(vector.kind==='ellipse'){const g=vector.geometry as {x:number;y:number;width:number;height:number};shape=<ellipse cx={g.x+g.width/2} cy={g.y+g.height/2} rx={g.width/2} ry={g.height/2} {...common}/>;}
   else if(vector.kind==='text'){const g=vector.geometry as {x:number;y:number;text:string;fontSize:number;fontFamily:string;fontWeight?:string;fontStyle?:string};shape=<text x={g.x} y={g.y} fontSize={g.fontSize} fontFamily={g.fontFamily} fontWeight={g.fontWeight??'400'} fontStyle={g.fontStyle??'normal'} {...common}>{g.text}</text>;}
-  else {const g=vector.geometry as any;shape=<path d={pathData(g)} fillRule={g.fillRule??'nonzero'} {...common}/>;}
+  else {const g=vector.geometry as any;shape=<path d={pathData(g, object.id)} fillRule={g.fillRule??'nonzero'} {...common}/>;}
   return <g key={object.id} style={projectiveStyle}>{shape}</g>;
 }
-function filterMarkup(id:string,filter:{kind:string;amount:number}) { return <filter id={id} key={id} colorInterpolationFilters="sRGB">{filter.kind==='gaussian-blur'?<feGaussianBlur stdDeviation={Math.max(0,filter.amount)}/>:filter.kind==='brightness'?<feComponentTransfer><feFuncR type="linear" slope={filter.amount}/><feFuncG type="linear" slope={filter.amount}/><feFuncB type="linear" slope={filter.amount}/></feComponentTransfer>:<feColorMatrix type="hueRotate" values={filter.amount}/>}</filter>; }
-function adjustmentFilter(id:string,items:Adjustment[]) { const enabled=items.filter(x=>x.enabled);if(!enabled.length)return null;return <filter id={id} key={id} colorInterpolationFilters="sRGB">{enabled.map(item=>item.kind==='gaussian-blur'?<feGaussianBlur key={item.id} stdDeviation={Number(item.parameters.radius??2)}/>:item.kind==='brightness-contrast'?<feComponentTransfer key={item.id}><feFuncR type="linear" slope={1+Number(item.parameters.contrast??0)/100} intercept={Number(item.parameters.brightness??0)/100}/><feFuncG type="linear" slope={1+Number(item.parameters.contrast??0)/100} intercept={Number(item.parameters.brightness??0)/100}/><feFuncB type="linear" slope={1+Number(item.parameters.contrast??0)/100} intercept={Number(item.parameters.brightness??0)/100}/></feComponentTransfer>:item.kind==='hue-saturation'?<feColorMatrix key={item.id} type="hueRotate" values={Number(item.parameters.hue??0)}/>:null)}</filter>; }
+function filterMarkup(id:string,filter:{kind:string;amount:number}) { return <filter id={id} key={id} colorInterpolationFilters="sRGB">{filter.kind==='gaussian-blur'?<feGaussianBlur stdDeviation={String(Math.max(0,filter.amount))}/>:filter.kind==='brightness'?<feComponentTransfer><feFuncR type="linear" slope={String(filter.amount)}/><feFuncG type="linear" slope={String(filter.amount)}/><feFuncB type="linear" slope={String(filter.amount)}/></feComponentTransfer>:<feColorMatrix type="hueRotate" values={String(filter.amount)}/>}</filter>; }
+function adjustmentFilter(id:string,items:Adjustment[]) { const enabled=items.filter(x=>x.enabled);if(!enabled.length)return null;return <filter id={id} key={id} colorInterpolationFilters="sRGB">{enabled.map(item=>item.kind==='gaussian-blur'?<feGaussianBlur key={item.id} stdDeviation={String(Number(item.parameters.radius??2))}/>:item.kind==='brightness-contrast'?<feComponentTransfer key={item.id}><feFuncR type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/><feFuncG type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/><feFuncB type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/></feComponentTransfer>:item.kind==='hue-saturation'?<feColorMatrix key={item.id} type="hueRotate" values={String(Number(item.parameters.hue??0))}/>:null)}</filter>; }
 export default function SvgArtboard({artboard,objects,assets={},viewport,previewTransforms={},previewProjectives={},selectionBounds,marquee,guides=[],showGoldenGuides=false,packaging,layers=[],adjustments={},active=true,transformMode='free'}:Props) {
  const layerGroups:ReactNode[]=[];for(const layerId of artboard.layerIds){const layer=layers.find(item=>item.id===layerId);if(layer&&!layer.visible)continue;const layerAdjustment=adjustments[layerId]??[];if(layer?.kind==='adjustment'){if(layerAdjustment.length&&layerGroups.length){const previous=layerGroups.splice(0);layerGroups.push(<g key={`adjustment-stack-${layerId}`} filter={`url(#adjustment-filter-${artboard.id}-${layerId})`}>{previous}</g>);}continue;}const list=Object.values(objects).filter(object=>object.layerId===layerId&&object.visible);const erasers=list.filter((object):object is VectorObject=>object.kind==='path'&&(object as VectorObject).compositeMode==='erase');const maskId=`eraser-mask-${artboard.id}-${layerId}`;layerGroups.push(<g key={layerId} opacity={layer?.opacity??1} mask={erasers.length?`url(#${maskId})`:undefined}>{list.filter(object=>!erasers.includes(object as VectorObject)).map(object=>renderObject(object,assets,previewTransforms[object.id],previewProjectives[object.id]))}</g>);}
- const defs=<defs>{artboard.layerIds.flatMap(layerId=>{const list=Object.values(objects).filter(object=>object.layerId===layerId&&object.visible);const erasers=list.filter((o):o is VectorObject=>o.kind==='path'&&(o as VectorObject).compositeMode==='erase');const adjustmentsForLayer=adjustments[layerId]??[];return [...(erasers.length?[<mask key={`mask-${layerId}`} id={`eraser-mask-${artboard.id}-${layerId}`} maskUnits="userSpaceOnUse" x="0" y="0" width={artboard.width} height={artboard.height}><rect width="100%" height="100%" fill="white"/>{erasers.map(item=><path key={item.id} d={pathData(item.geometry)} transform={`matrix(${item.transform.join(' ')})`} stroke="black" strokeWidth={item.strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill="none"/>)}</mask>]:[]),...list.filter((o):o is VectorObject=>o.kind!=='image'&&Boolean(o.filter)).map(o=>filterMarkup(`object-filter-${o.id}`,o.filter!)),...(adjustmentsForLayer.length?[adjustmentFilter(`adjustment-filter-${artboard.id}-${layerId}`,adjustmentsForLayer)]:[])];})}</defs>;
+ const defs=<defs>{artboard.layerIds.flatMap(layerId=>{const list=Object.values(objects).filter(object=>object.layerId===layerId&&object.visible);const erasers=list.filter((o):o is VectorObject=>o.kind==='path'&&(o as VectorObject).compositeMode==='erase');const adjustmentsForLayer=adjustments[layerId]??[];return [...(erasers.length?[<mask key={`mask-${layerId}`} id={`eraser-mask-${artboard.id}-${layerId}`} maskUnits="userSpaceOnUse" x="0" y="0" width={artboard.width} height={artboard.height}><rect width="100%" height="100%" fill="white"/>{erasers.map(item=><path key={item.id} d={pathData(item.geometry, item.id)} transform={`matrix(${item.transform.join(' ')})`} stroke="black" strokeWidth={item.strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill="none"/>)}</mask>]:[]),...list.filter((o):o is VectorObject=>o.kind!=='image'&&Boolean(o.filter)).map(o=>filterMarkup(`object-filter-${o.id}`,o.filter!)),...(adjustmentsForLayer.length?[adjustmentFilter(`adjustment-filter-${artboard.id}-${layerId}`,adjustmentsForLayer)]:[])];})}</defs>;
  return <svg className="artboard-svg" width={artboard.width*viewport.zoom} height={artboard.height*viewport.zoom} viewBox={`0 0 ${artboard.width} ${artboard.height}`} style={{left:viewport.panX+artboard.x*viewport.zoom,top:viewport.panY+artboard.y*viewport.zoom,background:artboard.background==='transparent'?'transparent':artboard.background,outline:active?'1px solid #8270b9':'1px solid #596170',pointerEvents:'none'}}>{defs}<rect width={artboard.width} height={artboard.height} fill={artboard.background==='transparent'?'transparent':artboard.background}/>{layerGroups}{packaging?(()=>{const bleed=artboard.width*(packaging.bleedMm/10)/(packaging.widthCm+packaging.bleedMm/5),trimWidth=artboard.width-bleed*2,foldX=bleed+packaging.leftMFoldCm/packaging.widthCm*trimWidth;return <g pointerEvents="none"><rect x={bleed} y={bleed} width={trimWidth} height={artboard.height-bleed*2} fill="none" stroke="#d95a5a" strokeWidth={1/viewport.zoom} strokeDasharray={`${6/viewport.zoom} ${4/viewport.zoom}`}/>{packaging.leftMFoldCm?<><rect x={bleed} y={bleed} width={foldX-bleed} height={artboard.height-bleed*2} fill="#2b9bd8" opacity=".08"/><line x1={foldX} y1={bleed} x2={foldX} y2={artboard.height-bleed} stroke="#2b9bd8" strokeWidth={2/viewport.zoom} strokeDasharray={`${8/viewport.zoom} ${5/viewport.zoom}`}/></>:null}</g>;})():null}{guides.map(guide=>guide.axis==='x'?<line key={guide.id} x1={guide.position} y1={0} x2={guide.position} y2={artboard.height} stroke="#00c8ff" strokeWidth={1/viewport.zoom}/>:<line key={guide.id} x1={0} y1={guide.position} x2={artboard.width} y2={guide.position} stroke="#00c8ff" strokeWidth={1/viewport.zoom}/>)}{showGoldenGuides&&<g stroke="#d4a84b" strokeWidth={1/viewport.zoom} strokeDasharray={`${5/viewport.zoom} ${4/viewport.zoom}`} opacity=".8"><line x1={artboard.width*.382} y1={0} x2={artboard.width*.382} y2={artboard.height}/><line x1={artboard.width*.618} y1={0} x2={artboard.width*.618} y2={artboard.height}/><line x1={0} y1={artboard.height*.382} x2={artboard.width} y2={artboard.height*.382}/><line x1={0} y1={artboard.height*.618} x2={artboard.width} y2={artboard.height*.618}/></g>}{active&&selectionBounds&&<g className="selection-overlay" pointerEvents="none"><rect x={selectionBounds.minX} y={selectionBounds.minY} width={selectionBounds.maxX-selectionBounds.minX} height={selectionBounds.maxY-selectionBounds.minY} fill="none" stroke="#4c9ffe" strokeWidth={1.5/viewport.zoom} strokeDasharray={`${5/viewport.zoom} ${3/viewport.zoom}`}/>{transformMode==='free'?<>{([{x:selectionBounds.minX,y:selectionBounds.minY},{x:(selectionBounds.minX+selectionBounds.maxX)/2,y:selectionBounds.minY},{x:selectionBounds.maxX,y:selectionBounds.minY},{x:selectionBounds.maxX,y:(selectionBounds.minY+selectionBounds.maxY)/2},{x:selectionBounds.maxX,y:selectionBounds.maxY},{x:(selectionBounds.minX+selectionBounds.maxX)/2,y:selectionBounds.maxY},{x:selectionBounds.minX,y:selectionBounds.maxY},{x:selectionBounds.minX,y:(selectionBounds.minY+selectionBounds.maxY)/2}] as const).map((p,i)=><rect key={i} x={p.x-4/viewport.zoom} y={p.y-4/viewport.zoom} width={8/viewport.zoom} height={8/viewport.zoom} fill="#fff" stroke="#2687ef" strokeWidth={1.5/viewport.zoom}/>)}<path d={`M ${(selectionBounds.minX+selectionBounds.maxX)/2} ${selectionBounds.minY} v ${-28/viewport.zoom}`} stroke="#2687ef" strokeWidth={1/viewport.zoom}/><circle cx={(selectionBounds.minX+selectionBounds.maxX)/2} cy={selectionBounds.minY-36/viewport.zoom} r={5/viewport.zoom} fill="#fff" stroke="#2687ef" strokeWidth={1.5/viewport.zoom}/></>:([{x:selectionBounds.minX,y:selectionBounds.minY},{x:selectionBounds.maxX,y:selectionBounds.minY},{x:selectionBounds.maxX,y:selectionBounds.maxY},{x:selectionBounds.minX,y:selectionBounds.maxY}] as const).map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={7/viewport.zoom} fill="#fff" stroke="#c58aff" strokeWidth={2/viewport.zoom}/>)}</g>}{active&&marquee&&<rect x={marquee.x} y={marquee.y} width={marquee.width} height={marquee.height} fill="#4c9ffe" fillOpacity=".12" stroke="#4c9ffe" strokeDasharray="5 3"/>}</svg>;
+=======
+type Props = { artboard: Artboard; objects: Record<string, EditorObject>; assets?: Record<string, RasterAsset>; viewport: Viewport; previewTransforms?: Record<string, EditorObject['transform']>; selectionBounds?: { minX: number; minY: number; maxX: number; maxY: number } | null; marquee?: { x: number; y: number; width: number; height: number } | null; guides?: Guide[]; showGoldenGuides?: boolean; packaging?: YgsDocument['packaging']; layers?: Layer[]; adjustments?: Record<string, Adjustment[]>; active?: boolean };
+
+// 修复 1: 增加了可选参数 _id
+function pathData(g: any, _id?: string) { 
+  return g.segments.map((segment: any, i: number) => { 
+    const target=g.nodes[segment.to]?.anchor;
+    if(!target)return '';
+    if(segment.type==='move')return `${i?' ':' '}M ${target.x} ${target.y}`;
+    if(segment.type==='line')return `L ${target.x} ${target.y}`;
+    if(segment.type==='quadratic'&&segment.control)return `Q ${segment.control.x} ${segment.control.y} ${target.x} ${target.y}`;
+    if(segment.type==='cubic'&&segment.from!==undefined){
+      const from=g.nodes[segment.from],c1=from?.outHandle??from?.anchor,c2=g.nodes[segment.to]?.inHandle??target;
+      return `C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${target.x} ${target.y}`;
+    }
+    return '';
+  }).join(' ')+(g.closed?' Z':''); 
+}
+
+function renderObject(object: EditorObject, assets: Record<string, RasterAsset>, previewTransform?: EditorObject['transform']) {
+  if (object.kind === 'image') { 
+    const asset=assets[object.assetId];
+    if(!asset?.dataUrl)return null;
+    return <image key={object.id} href={asset.dataUrl} x={object.x} y={object.y} width={object.width} height={object.height} transform={`matrix(${(previewTransform??object.transform).join(' ')})`} opacity={object.opacity}/>; 
+  }
+  
+  const vector=object as VectorObject; 
+  if(vector.compositeMode==='erase')return null;
+  
+  const common={
+    transform:`matrix(${(previewTransform??object.transform).join(' ')})`,
+    opacity:object.opacity,
+    fill:vector.fill??'none',
+    stroke:vector.stroke??'none',
+    strokeWidth:vector.strokeWidth,
+    strokeLinecap:'round' as const,
+    strokeLinejoin:'round' as const,
+    filter:vector.filter?`url(#object-filter-${object.id})`:undefined
+  };
+  
+  let shape;
+  if(vector.kind==='rect'){
+    const g=vector.geometry as {x:number;y:number;width:number;height:number};
+    shape=<rect x={g.x} y={g.y} width={g.width} height={g.height} {...common}/>;
+  }
+  else if(vector.kind==='ellipse'){
+    const g=vector.geometry as {x:number;y:number;width:number;height:number};
+    shape=<ellipse cx={g.x+g.width/2} cy={g.y+g.height/2} rx={g.width/2} ry={g.height/2} {...common}/>;
+  }
+  else if(vector.kind==='text'){
+    const g=vector.geometry as {x:number;y:number;text:string;fontSize:number;fontFamily:string;fontWeight?:string;fontStyle?:string};
+    shape=<text x={g.x} y={g.y} fontSize={g.fontSize} fontFamily={g.fontFamily} fontWeight={g.fontWeight??'400'} fontStyle={g.fontStyle??'normal'} {...common}>{g.text}</text>;
+  }
+  else {
+    const g=vector.geometry as any;
+    shape=<path d={pathData(g, object.id)} fillRule={g.fillRule??'nonzero'} {...common}/>;
+  }
+  return <g key={object.id}>{shape}</g>;
+}
+
+// 修复 2: 添加 String() 转换
+function filterMarkup(id:string,filter:{kind:string;amount:number}) { 
+  return <filter id={id} key={id} colorInterpolationFilters="sRGB">
+    {filter.kind==='gaussian-blur' ? 
+      <feGaussianBlur stdDeviation={String(Math.max(0,filter.amount))}/> : 
+    filter.kind==='brightness' ? 
+      <feComponentTransfer>
+        <feFuncR type="linear" slope={String(filter.amount)}/>
+        <feFuncG type="linear" slope={String(filter.amount)}/>
+        <feFuncB type="linear" slope={String(filter.amount)}/>
+      </feComponentTransfer> : 
+      <feColorMatrix type="hueRotate" values={String(filter.amount)}/>
+    }
+  </filter>; 
+}
+
+// 修复 3: 添加 String() 转换
+function adjustmentFilter(id:string,items:Adjustment[]) { 
+  const enabled=items.filter(x=>x.enabled);
+  if(!enabled.length)return null;
+  return <filter id={id} key={id} colorInterpolationFilters="sRGB">
+    {enabled.map(item=>
+      item.kind==='gaussian-blur' ? 
+        <feGaussianBlur key={item.id} stdDeviation={String(Number(item.parameters.radius??2))}/> : 
+      item.kind==='brightness-contrast' ? 
+        <feComponentTransfer key={item.id}>
+          <feFuncR type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/>
+          <feFuncG type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/>
+          <feFuncB type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/>
+        </feComponentTransfer> : 
+      item.kind==='hue-saturation' ? 
+        <feColorMatrix key={item.id} type="hueRotate" values={String(Number(item.parameters.hue??0))}/> : 
+      null
+    )}
+  </filter>; 
+}
+
+export default function SvgArtboard({
+  artboard, objects, assets = {}, viewport, previewTransforms = {}, selectionBounds, marquee, guides = [], showGoldenGuides = false, packaging, layers = [], adjustments = {}, active = true
+}: Props) {
+  const layerGroups: ReactNode[] = [];
+  
+  for (const layerId of artboard.layerIds) {
+    const layer = layers.find(item => item.id === layerId);
+    if (layer && !layer.visible) continue;
+    
+    const layerAdjustment = adjustments[layerId] ?? [];
+    if (layer?.kind === 'adjustment') {
+      if (layerAdjustment.length && layerGroups.length) {
+        const previous = layerGroups.splice(0);
+        layerGroups.push(
+          <g key={`adjustment-stack-${layerId}`} filter={`url(#adjustment-filter-${artboard.id}-${layerId})`}>
+            {previous}
+          </g>
+        );
+      }
+      continue;
+    }
+    
+    const list = Object.values(objects).filter(object => object.layerId === layerId && object.visible);
+    const erasers = list.filter((object): object is VectorObject => object.kind === 'path' && (object as VectorObject).compositeMode === 'erase');
+    const maskId = `eraser-mask-${artboard.id}-${layerId}`;
+    
+    layerGroups.push(
+      <g key={layerId} opacity={layer?.opacity ?? 1} mask={erasers.length ? `url(#${maskId})` : undefined}>
+        {list.filter(object => !erasers.includes(object as VectorObject)).map(object => renderObject(object, assets, previewTransforms[object.id]))}
+      </g>
+    );
+  }
+  
+  const defs = <defs>
+    {artboard.layerIds.flatMap(layerId => {
+      const list = Object.values(objects).filter(object => object.layerId === layerId && object.visible);
+      const erasers = list.filter((o): o is VectorObject => o.kind === 'path' && (o as VectorObject).compositeMode === 'erase');
+      const adjustmentsForLayer = adjustments[layerId] ?? [];
+      
+      return [
+        ...(erasers.length ? [
+          <mask key={`mask-${layerId}`} id={`eraser-mask-${artboard.id}-${layerId}`} maskUnits="userSpaceOnUse" x="0" y="0" width={artboard.width} height={artboard.height}>
+            <rect width="100%" height="100%" fill="white"/>
+            {erasers.map(item => <path key={item.id} d={pathData(item.geometry)} transform={`matrix(${item.transform.join(' ')})`} stroke="black" strokeWidth={item.strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill="none"/>)}
+          </mask>
+        ] : []),
+        ...list.filter((o): o is VectorObject => o.kind !== 'image' && Boolean(o.filter)).map(o => filterMarkup(`object-filter-${o.id}`, o.filter!)),
+        ...(adjustmentsForLayer.length ? [adjustmentFilter(`adjustment-filter-${artboard.id}-${layerId}`, adjustmentsForLayer)] : [])
+      ];
+    })}
+  </defs>;
+
+  return (
+    <svg 
+      className="artboard-svg" 
+      width={artboard.width * viewport.zoom} 
+      height={artboard.height * viewport.zoom} 
+      viewBox={`0 0 ${artboard.width} ${artboard.height}`} 
+      style={{
+        left: viewport.panX + artboard.x * viewport.zoom,
+        top: viewport.panY + artboard.y * viewport.zoom,
+        background: artboard.background === 'transparent' ? 'transparent' : artboard.background,
+        outline: active ? '1px solid #8270b9' : '1px solid #596170',
+        pointerEvents: 'none'
+      }}
+    >
+      {defs}
+      <rect width={artboard.width} height={artboard.height} fill={artboard.background === 'transparent' ? 'transparent' : artboard.background}/>
+      {layerGroups}
+      
+      {packaging ? (() => {
+        const bleed = artboard.width * (packaging.bleedMm / 10) / (packaging.widthCm + packaging.bleedMm / 5),
+          trimWidth = artboard.width - bleed * 2,
+          foldX = bleed + packaging.leftMFoldCm / packaging.widthCm * trimWidth;
+        return (
+          <g pointerEvents="none">
+            <rect x={bleed} y={bleed} width={trimWidth} height={artboard.height - bleed * 2} fill="none" stroke="#d95a5a" strokeWidth={1 / viewport.zoom} strokeDasharray={`${6 / viewport.zoom} ${4 / viewport.zoom}`}/>
+            {packaging.leftMFoldCm ? (
+              <>
+                <rect x={bleed} y={bleed} width={foldX - bleed} height={artboard.height - bleed * 2} fill="#2b9bd8" opacity=".08"/>
+                <line x1={foldX} y1={bleed} x2={foldX} y2={artboard.height - bleed} stroke="#2b9bd8" strokeWidth={2 / viewport.zoom} strokeDasharray={`${8 / viewport.zoom} ${5 / viewport.zoom}`}/>
+              </>
+            ) : null}
+          </g>
+        );
+      })() : null}
+      
+      {guides.map(guide => 
+        guide.axis === 'x' 
+          ? <line key={guide.id} x1={guide.position} y1={0} x2={guide.position} y2={artboard.height} stroke="#00c8ff" strokeWidth={1 / viewport.zoom}/> 
+          : <line key={guide.id} x1={0} y1={guide.position} x2={artboard.width} y2={guide.position} stroke="#00c8ff" strokeWidth={1 / viewport.zoom}/>
+      )}
+      
+      {showGoldenGuides && (
+        <g stroke="#d4a84b" strokeWidth={1 / viewport.zoom} strokeDasharray={`${5 / viewport.zoom} ${4 / viewport.zoom}`} opacity=".8">
+          <line x1={artboard.width * .382} y1={0} x2={artboard.width * .382} y2={artboard.height}/>
+          <line x1={artboard.width * .618} y1={0} x2={artboard.width * .618} y2={artboard.height}/>
+          <line x1={0} y1={artboard.height * .382} x2={artboard.width} y2={artboard.height * .382}/>
+          <line x1={0} y1={artboard.height * .618} x2={artboard.width} y2={artboard.height * .618}/>
+        </g>
+      )}
+      
+      {active && selectionBounds && (
+        <g className="selection-overlay" pointerEvents="none">
+          <rect 
+            x={selectionBounds.minX} 
+            y={selectionBounds.minY} 
+            width={selectionBounds.maxX - selectionBounds.minX} 
+            height={selectionBounds.maxY - selectionBounds.minY} 
+            fill="none" 
+            stroke="#4c9ffe" 
+            strokeWidth={1.5 / viewport.zoom} 
+            strokeDasharray={`${5 / viewport.zoom} ${3 / viewport.zoom}`}
+          />
+          {([
+            {x: selectionBounds.minX, y: selectionBounds.minY},
+            {x: (selectionBounds.minX + selectionBounds.maxX) / 2, y: selectionBounds.minY},
+            {x: selectionBounds.maxX, y: selectionBounds.minY},
+            {x: selectionBounds.maxX, y: (selectionBounds.minY + selectionBounds.maxY) / 2},
+            {x: selectionBounds.maxX, y: selectionBounds.maxY},
+            {x: (selectionBounds.minX + selectionBounds.maxX) / 2, y: selectionBounds.maxY},
+            {x: selectionBounds.minX, y: selectionBounds.maxY},
+            {x: selectionBounds.minX, y: (selectionBounds.minY + selectionBounds.maxY) / 2}
+          ] as const).map((p, i) => (
+            <rect key={i} x={p.x - 4 / viewport.zoom} y={p.y - 4 / viewport.zoom} width={8 / viewport.zoom} height={8 / viewport.zoom} fill="#fff" stroke="#2687ef" strokeWidth={1.5 / viewport.zoom}/>
+          ))}
+          <path d={`M ${(selectionBounds.minX + selectionBounds.maxX) / 2} ${selectionBounds.minY} v ${-28 / viewport.zoom}`} stroke="#2687ef" strokeWidth={1 / viewport.zoom}/>
+          <circle cx={(selectionBounds.minX + selectionBounds.maxX) / 2} cy={selectionBounds.minY - 36 / viewport.zoom} r={5 / viewport.zoom} fill="#fff" stroke="#2687ef" strokeWidth={1.5 / viewport.zoom}/>
+        </g>
+      )}
+      
+      {active && marquee && (
+        <rect x={marquee.x} y={marquee.y} width={marquee.width} height={marquee.height} fill="#4c9ffe" fillOpacity=".12" stroke="#4c9ffe" strokeDasharray="5 3"/>
+      )}
+    </svg>
+  );
+>>>>>>> 65e80f31a0cf00e5d88064b2671b80a199a7074f
 }
