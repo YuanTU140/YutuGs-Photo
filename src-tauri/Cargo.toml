@@ -1,6 +1,6 @@
 [package]
 name = "yutugs-photo"
-version = "1.0.0-alpha.4"
+version = "1.0.0-alpha.6"
 description = "YutuGs Photo rebuilt raster and vector editor"
 authors = ["YutuGs Photo"]
 edition = "2021"

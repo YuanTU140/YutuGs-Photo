@@ -7,6 +7,7 @@ export type EditorCommand =
   | { type: 'object.transform'; id: Id; matrix: EditorObject['transform'] }
   | { type: 'object.transform.batch'; transforms: Array<{ id: Id; matrix: EditorObject['transform'] }> }
   | { type: 'object.align'; ids: Id[]; axis: AlignAxis; relativeTo?: 'selection' | Id }
+  | { type: 'object.distribute'; ids: Id[]; axis: 'horizontal' | 'vertical' }
   | { type: 'artboard.add'; artboard: Artboard; layer: Layer }
   | { type: 'artboard.resize'; id: Id; width: number; height: number };
 
@@ -55,6 +56,34 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
         : unionBounds(selected.map(getObjectBounds).filter((b): b is NonNullable<typeof b> => Boolean(b)));
       if (!target) throw new Error('Selected objects have no measurable geometry');
       for (const object of selected) object.transform = alignedTransform(object, target, command.axis);
+      break;
+    }
+    case 'object.distribute': {
+      if (command.ids.length < 3) throw new Error('At least three objects are required for distribution');
+      const selected = command.ids.map(id => next.objects[id]);
+      if (selected.some(item => !item)) throw new Error('One or more selected objects do not exist');
+      const objects = selected as EditorObject[];
+      const measured = objects.map(object => ({ object, bounds: getObjectBounds(object) }));
+      if (measured.some(item => !item.bounds)) throw new Error('Selected objects have no measurable geometry');
+      const horizontal = command.axis === 'horizontal';
+      measured.sort((a, b) => horizontal
+        ? a.bounds!.minX - b.bounds!.minX
+        : a.bounds!.minY - b.bounds!.minY);
+      const first = measured[0].bounds!;
+      const last = measured[measured.length - 1].bounds!;
+      const totalSize = measured.reduce((sum, item) => sum + (horizontal ? item.bounds!.width : item.bounds!.height), 0);
+      const gap = ((horizontal ? last.maxX - first.minX : last.maxY - first.minY) - totalSize) / (measured.length - 1);
+      if (!Number.isFinite(gap)) throw new Error('Unable to calculate distribution spacing');
+      let cursor = horizontal ? first.minX : first.minY;
+      for (const item of measured) {
+        const bounds = item.bounds!;
+        const currentStart = horizontal ? bounds.minX : bounds.minY;
+        const delta = cursor - currentStart;
+        const matrix = [...item.object.transform] as EditorObject['transform'];
+        if (horizontal) matrix[4] += delta; else matrix[5] += delta;
+        item.object.transform = matrix;
+        cursor += (horizontal ? bounds.width : bounds.height) + gap;
+      }
       break;
     }
     case 'artboard.add':

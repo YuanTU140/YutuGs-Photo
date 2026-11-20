@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDocument } from '../src/core/model';
 import { createHistory, dispatch, redo, undo } from '../src/core/history';
-import { screenToDocument, documentToScreen, zoomAt } from '../src/core/viewport';
+import { screenToDocument, documentToScreen, zoomAt, panBy } from '../src/core/viewport';
 
 describe('new YGS core foundation', () => {
   it('creates a v2 document with a real artboard and layer', () => {
@@ -15,7 +15,12 @@ describe('new YGS core foundation', () => {
     const viewport = { panX: 35, panY: 22, zoom: 1.5 };
     const p = { x: 120, y: 80 };
     expect(screenToDocument(documentToScreen(p, viewport), viewport)).toEqual(p);
-    expect(zoomAt(viewport, { x: 100, y: 100 }, 2).zoom).toBe(2);
+    const zoomed = zoomAt(viewport, { x: 100, y: 100 }, 2);
+    expect(zoomed.zoom).toBe(2);
+    expect(documentToScreen(screenToDocument({x:100,y:100},viewport),zoomed)).toEqual({x:100,y:100});
+  });
+  it('pans in screen-space while preserving zoom', () => {
+    expect(panBy({panX:10,panY:20,zoom:1.5},{x:-12,y:8})).toEqual({panX:-2,panY:28,zoom:1.5});
   });
   it('supports immutable history snapshots', () => {
     const initial = createDocument();
@@ -122,5 +127,44 @@ describe('YGS transformed-object persistence', () => {
     document.layers[0].objectIds.push(object.id);
     const reopened = await decodeYgs(await encodeYgs(document));
     expect(reopened.objects.persisted_rect.transform).toEqual(object.transform);
+  });
+});
+
+
+describe('even object distribution command', () => {
+  const makeRect = (id: string, x: number, y: number, width: number, height: number, layerId: string) => ({
+    id, name: id, kind: 'rect' as const, geometry: { x, y, width, height },
+    transform: [1, 0, 0, 1, 0, 0] as [number, number, number, number, number, number],
+    opacity: 1, visible: true, locked: false, layerId, fill: '#000000', stroke: null, strokeWidth: 0,
+  });
+  it('distributes unequal-width objects with equal horizontal gaps and supports undo/redo', () => {
+    const initial = createDocument();
+    let state = createHistory(initial);
+    state = dispatch(state, { type: 'object.add', object: makeRect('a', 0, 0, 20, 10, initial.layers[0].id) });
+    state = dispatch(state, { type: 'object.add', object: makeRect('b', 40, 0, 40, 10, initial.layers[0].id) });
+    state = dispatch(state, { type: 'object.add', object: makeRect('c', 150, 0, 30, 10, initial.layers[0].id) });
+    const distributed = dispatch(state, { type: 'object.distribute', ids: ['a', 'b', 'c'], axis: 'horizontal' });
+    const bounds = ['a', 'b', 'c'].map(id => getObjectBounds(distributed.document.objects[id])!);
+    expect(bounds[0].minX).toBe(0);
+    expect(bounds[1].minX - bounds[0].maxX).toBeCloseTo(bounds[2].minX - bounds[1].maxX);
+    expect(bounds[2].maxX).toBe(180);
+    expect(undo(distributed).document.objects.b.transform[4]).toBe(0);
+    expect(redo(undo(distributed)).document.objects.b.transform[4]).not.toBe(0);
+  });
+  it('distributes objects vertically while preserving the outer bounds', () => {
+    const initial = createDocument();
+    let state = createHistory(initial);
+    state = dispatch(state, { type: 'object.add', object: makeRect('top', 0, 0, 10, 20, initial.layers[0].id) });
+    state = dispatch(state, { type: 'object.add', object: makeRect('middle', 0, 40, 10, 40, initial.layers[0].id) });
+    state = dispatch(state, { type: 'object.add', object: makeRect('bottom', 0, 150, 10, 30, initial.layers[0].id) });
+    const distributed = dispatch(state, { type: 'object.distribute', ids: ['top', 'middle', 'bottom'], axis: 'vertical' });
+    const bounds = ['top', 'middle', 'bottom'].map(id => getObjectBounds(distributed.document.objects[id])!);
+    expect(bounds[1].minY - bounds[0].maxY).toBeCloseTo(bounds[2].minY - bounds[1].maxY);
+    expect(bounds[0].minY).toBe(0);
+    expect(bounds[2].maxY).toBe(180);
+  });
+  it('rejects fewer than three objects', () => {
+    const initial = createDocument();
+    expect(() => dispatch(createHistory(initial), { type: 'object.distribute', ids: ['a', 'b'], axis: 'vertical' })).toThrow();
   });
 });

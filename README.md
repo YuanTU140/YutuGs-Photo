@@ -1,6 +1,6 @@
 # YutuGs-Photo — 全新重建工程
 
-**版本：1.0.0-alpha.4（独立版本线）**
+**版本：1.0.0-alpha.6（独立版本线）**
 
 本项目从空白工程重新构建。旧版 0.4.x 仅作为功能需求参考，不继承旧版 App.tsx、Canvas 2D 编辑逻辑或旧前端文档模型。
 
@@ -70,6 +70,15 @@ Windows 安装包：在 Windows 构建主机配置 Rust 与 Tauri 工具链后�
 - Tauri 启动时先显示品牌启动窗口，约 1.8 秒后显示主窗口并关闭启动窗口。
 - 动画遵循 `prefers-reduced-motion`，减少动态效果时显示静态五点。
 
+
+## Alpha 0.5 — viewport navigation
+
+- Alt + 鼠标滚轮以指针所在位置为锚点缩放，避免鼠标下方内容漂移。
+- 鼠标中键按住拖动画布。
+- 按住空格键 + 鼠标左键或右键拖动画布；右键上下文菜单在画布内被抑制。
+- 平移手势取消时恢复手势开始前的视口。
+- 视口平移和缩放锚点逻辑增加单元测试。
+- 修复 Tauri `Manager` trait 导入，确保 `get_webview_window` API 在作用域中。
 
 ## Alpha 0.4 — interactive selection and transforms
 

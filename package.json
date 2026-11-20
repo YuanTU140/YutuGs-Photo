@@ -1,7 +1,7 @@
 {
   "name": "yutugs-photo-rebuild",
   "private": true,
-  "version": "1.0.0-alpha.4",
+  "version": "1.0.0-alpha.6",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
