@@ -1,0 +1,18 @@
+[package]
+name = "yutugs-photo"
+version = "1.0.0-alpha.4"
+description = "YutuGs Photo rebuilt raster and vector editor"
+authors = ["YutuGs Photo"]
+edition = "2021"
+
+[lib]
+name = "yutugs_photo_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
