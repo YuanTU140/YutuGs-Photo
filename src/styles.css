@@ -17,3 +17,30 @@
 .menu-dropdown button:disabled { opacity:.42; cursor:not-allowed; }
 .menu-dropdown small { opacity:.58; font-size:10px; }
 @media (max-width:1100px) { .topbar nav { gap:0; } .menu-trigger { padding:6px 5px; font-size:11px; } }
+
+/* Restored 0.4.9-era workspaces on the SVG/YGS engine. */
+.workspace-overlay{position:fixed;inset:0;z-index:200;background:#11151c;overflow:auto}
+.modal-backdrop{position:fixed;inset:0;z-index:150;background:#080b10c9;display:grid;place-items:center;padding:24px}
+.packaging-dialog{width:min(520px,96vw);display:grid;gap:14px;padding:22px;border:1px solid #485366;border-radius:12px;background:#252b35;color:#edf2f7;box-shadow:0 24px 80px #0009}
+.packaging-dialog header{display:flex;align-items:center;justify-content:space-between;font-size:16px}
+.packaging-dialog header button,.packaging-dialog .primary-action{border:0;border-radius:6px;padding:9px 13px;background:#3c4656;color:#eef2f8;cursor:pointer}
+.packaging-dialog label{display:grid;gap:6px;color:#b8c2d1;font-size:12px}
+.packaging-dialog select{width:100%;padding:10px;border:1px solid #4b5668;border-radius:6px;background:#171c24;color:#f1f4f8}
+.packaging-dialog p{margin:0;color:#98a5b8;font-size:11px;line-height:1.7}
+.packaging-dialog .primary-action{background:#6750a4;font-weight:700}
+.artboard-row{width:100%;border:0;background:transparent;text-align:left;cursor:pointer}
+.artboard-row.active{background:#39344c;color:#fff}
+.artboard-row:hover{background:#303541}
+.ruler-horizontal,.ruler-vertical{position:absolute;z-index:8;border:1px solid #495364;background:#252d39;color:#b7c5d7;font:9px/1.2 ui-monospace,monospace;cursor:crosshair;opacity:.92}
+.ruler-horizontal{top:0;left:0;right:0;height:18px;text-align:left;letter-spacing:5px;padding-left:8px;white-space:nowrap;overflow:hidden}
+.ruler-vertical{top:18px;left:0;bottom:0;width:20px;text-align:center;white-space:pre-line;overflow:hidden;letter-spacing:1px}
+.layer-toggle{display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#aeb8c8;padding:2px;cursor:pointer}
+.layer-toggle:hover{color:#fff}
+.layer-opacity{width:54px;min-width:42px;height:14px;accent-color:#8d6bea;margin-left:auto}
+
+.object-row:disabled{opacity:.4;cursor:not-allowed}
+
+/* 1.1.3-alpha: vector paint tools, multi-artboard and Photoshop/Illustrator-style new document dialog */
+.tool-options{display:grid;gap:8px;margin:-6px 0 16px;padding:9px;background:#1d222b;border:1px solid #343b49;border-radius:6px}.tool-options label,.text-properties label{display:grid;grid-template-columns:82px minmax(0,1fr);align-items:center;gap:7px;color:#aeb8c8;font-size:10px}.tool-options input,.tool-options select,.text-properties input,.text-properties select{width:100%;min-width:0;padding:5px;border:1px solid #414b5b;border-radius:4px;background:#171c24;color:#e9edf4;font-size:11px}.tool-options input[type=color],.text-properties input[type=color]{height:26px;padding:2px}.pen-preview{position:absolute;z-index:12;pointer-events:none;overflow:visible}.text-properties{display:grid;gap:8px;margin:8px 0 14px;padding:9px;background:#1d222b;border:1px solid #3a4050;border-radius:6px}.text-properties .panel-heading{margin:0;padding:0 0 7px}.new-document-dialog{width:min(860px,96vw);max-height:90vh;overflow:auto;padding:20px;border:1px solid #4b5668;border-radius:12px;background:#242a34;color:#edf2f7;box-shadow:0 24px 90px #000b}.new-document-dialog header,.new-document-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:10px}.new-document-dialog header{font-size:17px;margin-bottom:14px}.new-document-dialog header button,.new-document-dialog footer button{border:1px solid #495568;border-radius:6px;padding:8px 14px;background:#343d4b;color:#edf2f7;cursor:pointer}.new-doc-tabs{display:flex;gap:8px;border-bottom:1px solid #414a59;padding-bottom:12px}.new-doc-tabs button{padding:9px 12px;border:1px solid #414b5c;border-radius:6px;background:#1b212b;color:#b9c4d4;cursor:pointer}.new-doc-tabs button.active{border-color:#9176d4;background:#42365e;color:#fff}.new-doc-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:18px;padding:16px 0}.new-doc-presets{display:grid;align-content:start;gap:7px}.new-doc-presets b{font-size:12px;color:#dce3ed;margin-bottom:4px}.new-doc-presets button{text-align:left;padding:9px;border:1px solid #3b4554;border-radius:5px;background:#1c222c;color:#cbd4e1;cursor:pointer}.new-doc-presets button:hover{border-color:#8e77c8}.new-doc-settings{display:grid;align-content:start;gap:12px}.new-doc-settings label{display:grid;gap:5px;color:#b7c2d1;font-size:11px}.new-doc-settings input,.new-doc-settings select{width:100%;padding:8px;border:1px solid #485466;border-radius:5px;background:#171d26;color:#f0f3f8}.new-doc-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.new-doc-settings p{margin:0;padding:10px;border-radius:6px;background:#1b222c;color:#98a7ba;font-size:11px;line-height:1.7}.new-document-dialog footer{justify-content:flex-end;border-top:1px solid #414a59;padding-top:14px}.new-document-dialog footer .primary-action{background:#6951a7;border-color:#8068be;font-weight:700}
+.font-status{font-size:9px;color:#77869b;line-height:1.4}.adjustment-controls{display:grid;gap:8px;margin:8px 0 14px;padding:10px;border:1px solid #485267;border-radius:6px;background:#1c222c;color:#d9e1ec;font-size:11px}.adjustment-controls label{display:grid;grid-template-columns:50px 1fr 26px;align-items:center;gap:6px;color:#aeb9c9}.adjustment-controls input{width:100%;accent-color:#8d6bea}.adjustment-controls small{font-size:10px;text-align:right}.adjustment-controls button{padding:6px;border:1px solid #485267;border-radius:4px;background:#303847;color:#dce4ef}
+.pathfinder-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin:6px 0}.pathfinder-actions button{padding:7px;border:1px solid #485267;border-radius:5px;background:#303744;color:#e0e6ef;font-size:11px;cursor:pointer}.pathfinder-actions button:disabled{opacity:.35;cursor:not-allowed}.pathfinder-note{display:block;margin:0 0 12px;color:#8794a8;font-size:9px;line-height:1.5}

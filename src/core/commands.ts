@@ -1,13 +1,24 @@
-import type { Artboard, EditorObject, Id, Layer, YgsDocument } from './model';
+import type { Artboard, EditorObject, Id, Layer, RasterAsset, Guide, YgsDocument } from './model';
 import { alignedTransform, unionBounds, getObjectBounds, type AlignAxis } from './geometry';
 
 export type EditorCommand =
   | { type: 'object.add'; object: EditorObject }
   | { type: 'object.delete'; ids: Id[] }
+  | { type: 'object.update'; id: Id; patch: Partial<Pick<import('./model').VectorObject, 'geometry'|'fill'|'stroke'|'strokeWidth'|'opacity'|'name'|'filter'|'compositeMode'>> }
+  | { type: 'adjustment.add'; layerId: Id; adjustment: import('./model').Adjustment }
+  | { type: 'adjustment.update'; layerId: Id; adjustmentId: Id; patch: Partial<Pick<import('./model').Adjustment, 'enabled'|'opacity'|'parameters'>> }
   | { type: 'object.transform'; id: Id; matrix: EditorObject['transform'] }
   | { type: 'object.transform.batch'; transforms: Array<{ id: Id; matrix: EditorObject['transform'] }> }
   | { type: 'object.align'; ids: Id[]; axis: AlignAxis; relativeTo?: 'selection' | Id }
   | { type: 'object.distribute'; ids: Id[]; axis: 'horizontal' | 'vertical' }
+  | { type: 'ai.result.add'; artboardId: Id; layer: Layer; asset: RasterAsset; object: EditorObject }
+  | { type: 'asset.add'; asset: RasterAsset }
+  | { type: 'guide.add'; guide: Guide }
+  | { type: 'guide.delete'; id: Id }
+  | { type: 'guide.clear' }
+  | { type: 'layer.add'; layer: Layer; artboardId: Id }
+  | { type: 'layer.update'; id: Id; patch: Partial<Pick<Layer, 'name'|'visible'|'locked'|'opacity'|'blendMode'>> }
+  | { type: 'layer.delete'; id: Id }
   | { type: 'artboard.add'; artboard: Artboard; layer: Layer }
   | { type: 'artboard.resize'; id: Id; width: number; height: number };
 
@@ -15,10 +26,29 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
   const next = structuredClone(doc);
   switch (command.type) {
     case 'object.add': {
-      next.objects[command.object.id] = command.object;
-      const layer = next.layers.find((item) => item.id === command.object.layerId);
+      const addedObject = structuredClone(command.object);
+      next.objects[addedObject.id] = addedObject;
+      const layer = next.layers.find((item) => item.id === addedObject.layerId);
       if (!layer) throw new Error(`Layer not found: ${command.object.layerId}`);
-      layer.objectIds.push(command.object.id);
+      layer.objectIds.push(addedObject.id);
+      break;
+    }
+    case 'object.update': {
+      const object = next.objects[command.id];
+      if (!object || object.kind === 'image') throw new Error(`Vector object not found: ${command.id}`);
+      Object.assign(object, structuredClone(command.patch));
+      break;
+    }
+    case 'adjustment.add': {
+      if (!next.layers.some(layer => layer.id === command.layerId)) throw new Error(`Layer not found: ${command.layerId}`);
+      next.adjustments[command.layerId] = [...(next.adjustments[command.layerId] ?? []), structuredClone(command.adjustment)];
+      break;
+    }
+    case 'adjustment.update': {
+      const list = next.adjustments[command.layerId] ?? [];
+      const item = list.find(value => value.id === command.adjustmentId);
+      if (!item) throw new Error(`Adjustment not found: ${command.adjustmentId}`);
+      Object.assign(item, structuredClone(command.patch));
       break;
     }
     case 'object.delete': {
@@ -86,10 +116,50 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
       }
       break;
     }
-    case 'artboard.add':
-      next.artboards.push(command.artboard);
-      next.layers.push(command.layer);
+    case 'ai.result.add': {
+      const artboard = next.artboards.find(item => item.id === command.artboardId);
+      if (!artboard) throw new Error(`Artboard not found: ${command.artboardId}`);
+      if (command.object.kind !== 'image' || command.object.layerId !== command.layer.id || command.object.assetId !== command.asset.id) throw new Error('AI raster result references are inconsistent');
+      const addedLayer = structuredClone(command.layer);
+      const addedAsset = structuredClone(command.asset);
+      const addedObject = structuredClone(command.object);
+      addedLayer.objectIds.push(addedObject.id);
+      next.layers.push(addedLayer); artboard.layerIds.push(addedLayer.id);
+      next.assets[addedAsset.id] = addedAsset; next.objects[addedObject.id] = addedObject;
       break;
+    }
+    case 'asset.add': { const asset = structuredClone(command.asset); next.assets[asset.id] = asset; break; }
+    case 'guide.add': { next.guides = [...(next.guides ?? []), structuredClone(command.guide)]; break; }
+    case 'guide.delete': { next.guides = (next.guides ?? []).filter(item => item.id !== command.id); break; }
+    case 'guide.clear': { next.guides = []; break; }
+    case 'layer.add': {
+      const artboard = next.artboards.find(item => item.id === command.artboardId);
+      if (!artboard) throw new Error(`Artboard not found: ${command.artboardId}`);
+      const layer = structuredClone(command.layer);
+      next.layers.push(layer); artboard.layerIds.push(layer.id);
+      break;
+    }
+    case 'layer.update': {
+      const layer = next.layers.find(item => item.id === command.id);
+      if (!layer) throw new Error(`Layer not found: ${command.id}`);
+      Object.assign(layer, command.patch);
+      break;
+    }
+    case 'layer.delete': {
+      const layer = next.layers.find(item => item.id === command.id);
+      if (!layer) break;
+      if (layer.objectIds.length) throw new Error('请先移动或删除图层中的对象');
+      next.layers = next.layers.filter(item => item.id !== command.id);
+      for (const artboard of next.artboards) artboard.layerIds = artboard.layerIds.filter(id => id !== command.id);
+      break;
+    }
+    case 'artboard.add': {
+      const artboard = structuredClone(command.artboard);
+      const layer = structuredClone(command.layer);
+      next.artboards.push(artboard);
+      next.layers.push(layer);
+      break;
+    }
     case 'artboard.resize': {
       const artboard = next.artboards.find((item) => item.id === command.id);
       if (!artboard) throw new Error(`Artboard not found: ${command.id}`);

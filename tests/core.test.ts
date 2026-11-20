@@ -168,3 +168,73 @@ describe('even object distribution command', () => {
     expect(() => dispatch(createHistory(initial), { type: 'object.distribute', ids: ['a', 'b'], axis: 'vertical' })).toThrow();
   });
 });
+
+
+describe('restored layer, guide and raster-result commands', () => {
+  it('adds an AI raster result as one undoable independent layer', () => {
+    const initial = createDocument('AI result', 800, 600);
+    const layer = { id: 'ai_layer', name: 'AI 生成结果', visible: true, locked: false, opacity: 1, objectIds: [], parentId: null, blendMode: 'normal', kind: 'pixel' as const };
+    const asset = { id: 'asset_1', mimeType: 'image/png', byteLength: 4, contentHash: 'test', storageKey: 'embedded:asset_1', width: 2, height: 2, dataUrl: 'data:image/png;base64,dGVzdA==' };
+    const object = { id: 'image_1', name: 'AI 图像结果', kind: 'image' as const, assetId: asset.id, x: 0, y: 0, width: 2, height: 2, transform: [1,0,0,1,0,0] as [number,number,number,number,number,number], opacity: 1, visible: true, locked: false, layerId: layer.id };
+    const added = dispatch(createHistory(initial), { type: 'ai.result.add', artboardId: initial.artboards[0].id, layer, asset, object });
+    expect(added.document.layers).toHaveLength(2);
+    expect(added.document.assets[asset.id].dataUrl).toBe(asset.dataUrl);
+    expect(added.document.objects[object.id].kind).toBe('image');
+    expect(layer.objectIds).toEqual([]);
+    expect(undo(added).document.layers).toHaveLength(1);
+  });
+  it('stores guides in document history and toggles layer visibility', () => {
+    const initial = createDocument();
+    const guide = { id: 'guide_1', axis: 'x' as const, position: 240 };
+    const withGuide = dispatch(createHistory(initial), { type: 'guide.add', guide });
+    expect(withGuide.document.guides).toEqual([guide]);
+    const cleared = dispatch(withGuide, { type: 'guide.clear' });
+    expect(cleared.document.guides).toEqual([]);
+    const hidden = dispatch(withGuide, { type: 'layer.update', id: initial.layers[0].id, patch: { visible: false } });
+    expect(hidden.document.layers[0].visible).toBe(false);
+    expect(undo(hidden).document.layers[0].visible).toBe(true);
+  });
+});
+
+
+import { booleanPath } from '../src/core/pathBoolean';
+describe('editable convex vector pathfinder', () => {
+  const makeRect=(id:string,x:number,y:number,w:number,h:number)=>({id,name:id,kind:'rect' as const,geometry:{x,y,width:w,height:h},transform:[1,0,0,1,0,0] as [number,number,number,number,number,number],opacity:1,visible:true,locked:false,layerId:'layer_1',fill:'#222',stroke:null,strokeWidth:0});
+  const pathArea=(geometry:import('../src/core/model').VectorPath)=>{let area=0;for(let i=0;i<geometry.nodes.length;i++){const a=geometry.nodes[i].anchor,b=geometry.nodes[(i+1)%geometry.nodes.length].anchor;area+=a.x*b.y-b.x*a.y;}return Math.abs(area/2);};
+  it('returns editable path geometry for union, subtract and intersection',()=>{
+    const a=makeRect('a',0,0,100,100),b=makeRect('b',50,0,100,100);
+    const union=booleanPath(a,b,'union');expect(union.nodes.length).toBe(8);
+    const subtract=booleanPath(a,b,'subtract');expect(pathArea(subtract)).toBeCloseTo(5000);
+    const intersect=booleanPath(a,b,'intersect');expect(pathArea(intersect)).toBeCloseTo(5000);
+    const exclude=booleanPath(a,b,'exclude');expect(pathArea(exclude)).toBeCloseTo(10000);
+  });
+  it('rejects non-convex paths instead of silently generating incorrect geometry',()=>{
+    const a=makeRect('a',0,0,10,10);const b={...makeRect('b',0,0,10,10),kind:'path' as const,geometry:{nodes:[{anchor:{x:0,y:0},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:10,y:0},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:5,y:5},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:10,y:10},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:0,y:10},inHandle:null,outHandle:null,kind:'corner' as const}],segments:[{type:'move' as const,to:0},{type:'line' as const,to:1},{type:'line' as const,to:2},{type:'line' as const,to:3},{type:'line' as const,to:4}],closed:true,fillRule:'nonzero' as const}};
+    expect(()=>booleanPath(a,b,'intersect')).toThrow(/凸/);
+  });
+});
+
+
+describe('object filters and adjustment layer history',()=>{
+  it('updates vector object style and restores it with undo',()=>{
+    const initial=createDocument();const layerId=initial.layers[0].id;const object={id:'filtered',name:'rect',kind:'rect' as const,geometry:{x:0,y:0,width:20,height:20},transform:[1,0,0,1,0,0] as [number,number,number,number,number,number],opacity:1,visible:true,locked:false,layerId,fill:'#000',stroke:null,strokeWidth:0};
+    const added=dispatch(createHistory(initial),{type:'object.add',object});const filtered=dispatch(added,{type:'object.update',id:object.id,patch:{filter:{kind:'gaussian-blur',amount:4}}});expect((filtered.document.objects.filtered as import('../src/core/model').VectorObject).filter?.amount).toBe(4);expect(undo(filtered).document.objects.filtered).toEqual(object);
+  });
+  it('adds and updates an adjustment layer through document history',()=>{
+    const initial=createDocument(),layerId='adjustment_1',adjustment={id:'brightness_1',kind:'brightness-contrast' as const,enabled:true,opacity:1,parameters:{brightness:0,contrast:0},maskAssetId:null};const layer={id:layerId,name:'调整图层',visible:true,locked:false,opacity:1,objectIds:[],parentId:null,blendMode:'normal',kind:'adjustment' as const};
+    const withLayer=dispatch(createHistory(initial),{type:'layer.add',layer,artboardId:initial.artboards[0].id});const withAdjustment=dispatch(withLayer,{type:'adjustment.add',layerId,adjustment});const changed=dispatch(withAdjustment,{type:'adjustment.update',layerId,adjustmentId:adjustment.id,patch:{parameters:{brightness:20,contrast:15}}});expect(changed.document.adjustments[layerId][0].parameters.brightness).toBe(20);expect(undo(changed).document.adjustments[layerId][0].parameters.brightness).toBe(0);
+  });
+});
+
+describe('SVG vector brush, eraser mask and text style persistence',()=>{
+  it('round-trips Bézier handles, eraser composite mode and editable font attributes',async()=>{
+    const document=createDocument('tool persistence'),layerId=document.layers[0].id;
+    const path={id:'eraser_path',name:'eraser',kind:'path' as const,geometry:{nodes:[{anchor:{x:0,y:0},inHandle:null,outHandle:{x:10,y:0},kind:'symmetric' as const},{anchor:{x:20,y:0},inHandle:{x:10,y:0},outHandle:null,kind:'symmetric' as const}],segments:[{type:'move' as const,to:0},{type:'cubic' as const,from:0,to:1}],closed:false,fillRule:'nonzero' as const},transform:[1,0,0,1,0,0] as [number,number,number,number,number,number],opacity:1,visible:true,locked:false,layerId,fill:null,stroke:'#000',strokeWidth:18,compositeMode:'erase' as const};
+    const text={id:'styled_text',name:'styled',kind:'text' as const,geometry:{x:5,y:8,text:'YutuGs',fontSize:42,fontFamily:'Microsoft YaHei',fontWeight:'700',fontStyle:'italic'},transform:[1,0,0,1,0,0] as [number,number,number,number,number,number],opacity:1,visible:true,locked:false,layerId,fill:'#123456',stroke:null,strokeWidth:0};
+    document.objects[path.id]=path;document.objects[text.id]=text;document.layers[0].objectIds.push(path.id,text.id);
+    const reopened=await decodeYgs(await encodeYgs(document));
+    expect((reopened.objects.eraser_path as import('../src/core/model').VectorObject).compositeMode).toBe('erase');
+    expect(((reopened.objects.eraser_path as import('../src/core/model').VectorObject).geometry as import('../src/core/model').VectorPath).nodes[0].outHandle).toEqual({x:10,y:0});
+    expect((reopened.objects.styled_text as import('../src/core/model').VectorObject).geometry).toMatchObject({fontFamily:'Microsoft YaHei',fontWeight:'700',fontStyle:'italic'});
+  });
+});

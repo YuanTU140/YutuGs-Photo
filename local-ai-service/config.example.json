@@ -1,0 +1,13 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "device": "auto",
+  "dtype": "auto",
+  "models": {
+    "inpaint": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+    "text_to_image": "stabilityai/stable-diffusion-xl-base-1.0",
+    "upscale": "RealESRGAN_x4plus"
+  },
+  "cache_dir": "./models",
+  "max_upload_mb": 40
+}
