@@ -33,7 +33,7 @@ export type RasterObject = BaseObject & { kind: 'image'; assetId: Id; x: number;
 export type EditorObject = VectorObject | RasterObject;
 export type Layer = { id: Id; name: string; visible: boolean; locked: boolean; opacity: number; objectIds: Id[]; parentId: Id | null; blendMode: string; kind: 'pixel' | 'vector' | 'adjustment' | 'group' };
 export type Artboard = { id: Id; name: string; x: number; y: number; width: number; height: number; background: Color | 'transparent'; layerIds: Id[] };
-export type Guide = { id: Id; axis: 'x' | 'y'; position: number };
+export type Guide = { id: Id; axis: 'x' | 'y'; position: number; locked?: boolean; visible?: boolean; color?: Color };
 export type RasterAsset = { id: Id; mimeType: string; byteLength: number; contentHash: string; storageKey: string; width: number; height: number; dataUrl?: string };
 export type Adjustment = { id: Id; kind: 'levels' | 'curves' | 'hue-saturation' | 'brightness-contrast' | 'gaussian-blur'; enabled: boolean; opacity: number; parameters: Record<string, number | number[]>; maskAssetId: Id | null };
 export type ColorManagementSettings = { workingRgbProfile: string; outputCmykProfile: { name: string; sha256: string } | null; renderingIntent: 'perceptual'|'relative-colorimetric'|'saturation'|'absolute-colorimetric'; blackPointCompensation: boolean; totalInkLimit: number };
@@ -69,7 +69,7 @@ export function createDocument(name = '未命名设计', width = 1920, height = 
   const artboardId = createId('artboard');
   const layerId = createId('layer');
   return {
-    magic: 'YGS2', schemaVersion: 2, appVersion: '1.1.14-alpha', id: createId('doc'), name,
+    magic: 'YGS2', schemaVersion: 2, appVersion: '1.1.16-alpha', id: createId('doc'), name,
     units: 'px', resolutionDpi: 300, colorMode: 'RGB',
     artboards: [{ id: artboardId, name: '画板 1', x: 0, y: 0, width, height, background: '#ffffff', layerIds: [layerId] }],
     layers: [{ id: layerId, name: '图层 1', visible: true, locked: false, opacity: 1, objectIds: [], parentId: null, blendMode: 'normal', kind: 'vector' }],

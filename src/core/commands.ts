@@ -6,6 +6,8 @@ export type EditorCommand =
   | { type: 'object.add'; object: EditorObject }
   | { type: 'object.delete'; ids: Id[] }
   | { type: 'object.update'; id: Id; patch: Partial<Pick<import('./model').VectorObject, 'geometry'|'fill'|'stroke'|'strokeWidth'|'opacity'|'name'|'filter'|'compositeMode'>> }
+  | { type: 'object.update.batch'; patches: Array<{ id: Id; patch: Partial<EditorObject> }> }
+  | { type: 'object.reorder'; id: Id; direction: 'up' | 'down' }
   | { type: 'adjustment.add'; layerId: Id; adjustment: import('./model').Adjustment }
   | { type: 'adjustment.update'; layerId: Id; adjustmentId: Id; patch: Partial<Pick<import('./model').Adjustment, 'enabled'|'opacity'|'parameters'>> }
   | { type: 'document.colorManagement.update'; patch: Partial<import('./model').ColorManagementSettings> }
@@ -17,6 +19,7 @@ export type EditorCommand =
   | { type: 'ai.result.add'; artboardId: Id; layer: Layer; asset: RasterAsset; object: EditorObject }
   | { type: 'asset.add'; asset: RasterAsset }
   | { type: 'guide.add'; guide: Guide }
+  | { type: 'guide.update'; id: Id; patch: Partial<Pick<Guide, 'position'|'locked'|'visible'|'color'>> }
   | { type: 'guide.delete'; id: Id }
   | { type: 'guide.clear' }
   | { type: 'layer.add'; layer: Layer; artboardId: Id }
@@ -37,6 +40,8 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
       layer.objectIds.push(addedObject.id);
       break;
     }
+    case 'object.update.batch': { for (const item of command.patches) { const object = next.objects[item.id]; if (object) Object.assign(object, structuredClone(item.patch)); } break; }
+    case 'object.reorder': { const object = next.objects[command.id]; if (!object) break; const layer = next.layers.find(item => item.id === object.layerId); if (!layer) break; const index = layer.objectIds.indexOf(object.id); const target = index + (command.direction === 'up' ? 1 : -1); if (index >= 0 && target >= 0 && target < layer.objectIds.length) { [layer.objectIds[index], layer.objectIds[target]] = [layer.objectIds[target], layer.objectIds[index]]; } break; }
     case 'object.update': {
       const object = next.objects[command.id];
       if (!object || object.kind === 'image') throw new Error(`Vector object not found: ${command.id}`);
@@ -147,6 +152,7 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
     }
     case 'asset.add': { const asset = structuredClone(command.asset); next.assets[asset.id] = asset; break; }
     case 'guide.add': { next.guides = [...(next.guides ?? []), structuredClone(command.guide)]; break; }
+    case 'guide.update': { next.guides = (next.guides ?? []).map(item => item.id === command.id ? { ...item, ...structuredClone(command.patch) } : item); break; }
     case 'guide.delete': { next.guides = (next.guides ?? []).filter(item => item.id !== command.id); break; }
     case 'guide.clear': { next.guides = []; break; }
     case 'layer.add': {
