@@ -24,6 +24,7 @@ import { packagingTemplates, getTemplateLabel, type BagType } from './lib/packag
 import { booleanPath } from './core/pathBoolean';
 import { findInDocument, replaceInDocument } from './core/findReplace';
 import { snapPointToGuides } from './core/guides';
+import { DEFAULT_SHORTCUTS, eventToShortcut, findShortcutConflicts, type ShortcutAction, type ShortcutBinding } from './core/shortcuts';
 import { canvasBlob, compositeCanvas, decodeFlattenedPsd, encodeFlattenedPsd, encodeRasterEps, encodeRasterPdf, renderSvgCanvas } from './io/portableFormats';
 
 type HistoryAction = { type: 'undo' } | { type: 'redo' } | { type: 'command'; command: EditorCommand } | { type: 'replace'; document: ReturnType<typeof createDocument> };
@@ -66,6 +67,18 @@ export default function App() {
   const [packagingBleed, setPackagingBleed] = useState(3);
   const [showRulers, setShowRulers] = useState(false);
   const [snapGuides, setSnapGuides] = useState(true);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findReplacement, setFindReplacement] = useState('');
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false);
+  const [findWholeWord, setFindWholeWord] = useState(false);
+  const [findIncludeNames, setFindIncludeNames] = useState(true);
+  const [findIncludeText, setFindIncludeText] = useState(true);
+  const [findMatches, setFindMatches] = useState<ReturnType<typeof findInDocument>>([]);
+  const [findIndex, setFindIndex] = useState(-1);
+  const [shortcutBindings, setShortcutBindings] = useState<ShortcutBinding[]>(DEFAULT_SHORTCUTS);
+  const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false);
+  const [shortcutCaptureAction, setShortcutCaptureAction] = useState<ShortcutAction | null>(null);
   const [showGoldenGuides, setShowGoldenGuides] = useState(false);
   const [showNewDocDialog,setShowNewDocDialog]=useState(false);
   const [clipboardObjects,setClipboardObjects]=useState<EditorObject[]>([]);
@@ -312,39 +325,49 @@ export default function App() {
     if (!Number.isFinite(value)) return;
     setHistory({ type: 'command', command: { type: 'guide.add', guide: { id: createId('guide'), axis, position: Math.max(0, value) } } });
   };
-  const findNext = () => {
-    const query = window.prompt('查找对象名称或文字内容', findCursor.current.query);
-    if (query === null || !query.trim()) return;
-    const caseSensitive = window.confirm('是否区分大小写？\n确定：区分大小写；取消：不区分。');
-    const wholeWord = window.confirm('是否仅匹配完整单词？\n确定：完整单词；取消：包含匹配。');
-    const matches = findInDocument(doc, { query, caseSensitive, wholeWord });
-    if (!matches.length) { window.alert('没有找到匹配内容。'); return; }
-    const index = findCursor.current.query === query ? (findCursor.current.index + 1) % matches.length : 0;
-    findCursor.current = { query, index };
-    const match = matches[index];
+  const refreshFindMatches = (query = findQuery) => {
+    const matches = findInDocument(doc, { query, caseSensitive: findCaseSensitive, wholeWord: findWholeWord, includeNames: findIncludeNames, includeText: findIncludeText });
+    setFindMatches(matches);
+    return matches;
+  };
+  const navigateFind = (direction: 1 | -1) => {
+    if (!findQuery.trim()) return;
+    const matches = refreshFindMatches();
+    if (!matches.length) { setFindIndex(-1); return; }
+    const nextIndex = findIndex < 0 ? (direction === 1 ? 0 : matches.length - 1) : (findIndex + direction + matches.length) % matches.length;
+    setFindIndex(nextIndex);
+    const match = matches[nextIndex];
     const object = doc.objects[match.objectId];
+    if (!object) return;
     const board = doc.artboards.find(item => item.layerIds.includes(object.layerId));
     if (board) setActiveArtboardId(board.id);
     setSelection({ objectIds: [match.objectId], activeObjectId: match.objectId, artboardId: board?.id ?? null });
     setRightOpen(true);
-    window.alert(`找到 ${index + 1}/${matches.length}：${object.name}（${match.field === 'text' ? '文字内容' : '对象名称'}）`);
+  };
+  const openFind = (replace = false) => { setFindOpen(true); setFindIndex(-1); if (replace) setFindReplacement(''); };
+  const replaceCurrentMatch = () => {
+    if (!findQuery.trim()) return;
+    const matches = refreshFindMatches();
+    const index = findIndex < 0 ? 0 : findIndex;
+    const match = matches[index];
+    if (!match) return;
+    const focusedDocument = { ...doc, objects: { [match.objectId]: doc.objects[match.objectId] } };
+    const result = replaceInDocument(focusedDocument, { query: findQuery, replacement: findReplacement, caseSensitive: findCaseSensitive, wholeWord: findWholeWord, includeNames: match.field === 'name', includeText: match.field === 'text', all: false });
+    const changed = result.document.objects[match.objectId];
+    if (result.replacements && changed) {
+      setHistory({ type: 'command', command: { type: 'object.update', id: match.objectId, patch: changed } });
+      setFindIndex(-1);
+      refreshFindMatches();
+    }
   };
   const replaceAllMatches = () => {
-    const query = window.prompt('查找对象名称或文字内容');
-    if (query === null || !query) return;
-    const replacement = window.prompt('替换为', '');
-    if (replacement === null) return;
-    const caseSensitive = window.confirm('是否区分大小写？\n确定：区分大小写；取消：不区分。');
-    const wholeWord = window.confirm('是否仅匹配完整单词？\n确定：完整单词；取消：包含匹配。');
-    const result = replaceInDocument(doc, { query, replacement, caseSensitive, wholeWord, all: true });
+    if (!findQuery.trim()) return;
+    const result = replaceInDocument(doc, { query: findQuery, replacement: findReplacement, caseSensitive: findCaseSensitive, wholeWord: findWholeWord, includeNames: findIncludeNames, includeText: findIncludeText, all: true });
     if (!result.replacements) { window.alert('没有找到可替换的内容。'); return; }
-    const patches = Object.values(result.document.objects).flatMap(object => {
-      const before = doc.objects[object.id];
-      if (JSON.stringify(before) === JSON.stringify(object)) return [];
-      return [{ id: object.id, patch: object }];
-    });
-    setHistory({ type: 'command', command: { type: 'object.update.batch', patches } });
-    window.alert(`已替换 ${result.replacements} 处。可使用 Ctrl+Z 撤销。`);
+    const patches = Object.values(result.document.objects).flatMap(object => JSON.stringify(doc.objects[object.id]) === JSON.stringify(object) ? [] : [{ id: object.id, patch: object }]);
+    if (patches.length) setHistory({ type: 'command', command: { type: 'object.update.batch', patches } });
+    setFindMatches([]); setFindIndex(-1);
+    window.alert(`已全部替换 ${result.replacements} 处，可使用 Ctrl+Z 撤销。`);
   };
   const addLayer = () => {
     const layer = { id: createId('layer'), name: `图层 ${doc.layers.length + 1}`, visible: true, locked: false, opacity: 1, objectIds: [], parentId: null, blendMode: 'normal', kind: 'vector' as const };
@@ -358,7 +381,7 @@ export default function App() {
   const fitArtboards=()=>{if(!stageRef.current||!doc.artboards.length)return;const bounds={minX:Math.min(...doc.artboards.map(b=>b.x)),minY:Math.min(...doc.artboards.map(b=>b.y)),maxX:Math.max(...doc.artboards.map(b=>b.x+b.width)),maxY:Math.max(...doc.artboards.map(b=>b.y+b.height))};const rect=stageRef.current.getBoundingClientRect(),width=bounds.maxX-bounds.minX,height=bounds.maxY-bounds.minY,zoom=Math.min(8,Math.max(.05,Math.min((rect.width-80)/width,(rect.height-80)/height)));setViewport({zoom,panX:(rect.width-width*zoom)/2-bounds.minX*zoom,panY:(rect.height-height*zoom)/2-bounds.minY*zoom});};
   const menuItems:Record<string,{label:string;run?:()=>void;disabled?:boolean;hint?:string}[]>={
     '文件':[{label:'新建文档…',run:newDocument,hint:'Ctrl+N'},{label:'打开 / 导入文件…',run:()=>anyFileInputRef.current?.click(),hint:'YGS、SVG、PDF、PSD、AI(PDF)、PNG、JPG 等'},{label:'打开 YGS…',run:()=>openInputRef.current?.click(),hint:'Ctrl+O'},{label:'导入 SVG…',run:()=>svgInputRef.current?.click()},{label:'导入 PDF / PDF 兼容 AI…',run:()=>anyFileInputRef.current?.click(),hint:'页面渲染为位图对象'},{label:'导入 PSD…',run:()=>anyFileInputRef.current?.click(),hint:'支持 8 位 RGB 合成图像'},{label:'保存 YGS',run:()=>void saveDocument(),hint:'Ctrl+S'},{label:'另存为 YGS…',run:()=>void saveDocumentAs(),hint:'Ctrl+Shift+S'},{label:'导出…',run:()=>setShowExportDialog(true),hint:'选择 PSD/PDF/EPS/JPG/PNG/SVG 与 RGB/CMYK 色彩模式'},{label:'快速导出 SVG',run:exportSvg},{label:'快速导出 PNG',run:()=>void exportRaster('png')},{label:'快速导出 JPG',run:()=>void exportRaster('jpg')},{label:'导出 AI…',disabled:true,hint:'需 Adobe Illustrator 原生 AI 编码器'},{label:'导出 CDR…',disabled:true,hint:'需 CorelDRAW 原生 CDR 编码器'},{label:'CMYK 印前与四色分色…',run:()=>setShowPrintWorkspace(true)},{label:'AI 智能工作台',run:()=>setShowAiWorkspace(true)},{label:'包装模板…',run:()=>setShowPackagingDialog(true)},{label:'打开为…',disabled:true,hint:'格式转换导入未实现'},{label:'打印 / 打印预览 / 导出 PDF',run:()=>void exportPdf(),hint:'生成单页 PDF 文件'},{label:'关闭文档',run:()=>{if(window.confirm('关闭当前文档并切换到空白文档？未保存的修改不会保留。')){setHistory({type:'replace',document:createDocument()});setSelection(emptySelection());setActiveArtboardId(null);}}},{label:'关闭全部',disabled:true,hint:'当前为单文档工作区，尚无多文档标签管理'},{label:'退出应用',disabled:true,hint:'浏览器预览环境不允许关闭宿主窗口；桌面退出命令待接入'}],
-    '编辑':[{label:'查找…',run:findNext,hint:'Ctrl+F'},{label:'查找和替换…',run:replaceAllMatches,hint:'Ctrl+H'},{label:'撤销',run:()=>setHistory({type:'undo'}),disabled:!history.past.length,hint:'Ctrl+Z'},{label:'重做',run:()=>setHistory({type:'redo'}),disabled:!history.future.length,hint:'Ctrl+Y / Ctrl+Shift+Z'},{label:'剪切',run:cutSelection,disabled:!selection.objectIds.length,hint:'Ctrl+X'},{label:'复制',run:copySelection,disabled:!selection.objectIds.length,hint:'Ctrl+C'},{label:'粘贴',run:pasteClipboard,disabled:!clipboardObjects.length,hint:'Ctrl+V'},{label:'重复所选对象',run:duplicateSelection,disabled:!selection.objectIds.length,hint:'Ctrl+D'},{label:'删除所选对象',run:deleteSelection,disabled:!selection.objectIds.length,hint:'Delete'},{label:'全选当前画板对象',run:()=>setSelection({objectIds:objects.map(o=>o.id),activeObjectId:objects[objects.length-1]?.id??null,artboardId:artboard.id}),disabled:!objects.length,hint:'Ctrl+A'},{label:'取消选择',run:()=>setSelection(emptySelection()),disabled:!selection.objectIds.length,hint:'Ctrl+Shift+A'}],
+    '编辑':[{label:'查找…',run:()=>openFind(false),hint:'Ctrl+F'},{label:'查找和替换…',run:()=>openFind(true),hint:'Ctrl+H'},{label:'键盘快捷键设置…',run:()=>setShortcutSettingsOpen(true)},{label:'撤销',run:()=>setHistory({type:'undo'}),disabled:!history.past.length,hint:'Ctrl+Z'},{label:'重做',run:()=>setHistory({type:'redo'}),disabled:!history.future.length,hint:'Ctrl+Y / Ctrl+Shift+Z'},{label:'剪切',run:cutSelection,disabled:!selection.objectIds.length,hint:'Ctrl+X'},{label:'复制',run:copySelection,disabled:!selection.objectIds.length,hint:'Ctrl+C'},{label:'粘贴',run:pasteClipboard,disabled:!clipboardObjects.length,hint:'Ctrl+V'},{label:'重复所选对象',run:duplicateSelection,disabled:!selection.objectIds.length,hint:'Ctrl+D'},{label:'删除所选对象',run:deleteSelection,disabled:!selection.objectIds.length,hint:'Delete'},{label:'全选当前画板对象',run:()=>setSelection({objectIds:objects.map(o=>o.id),activeObjectId:objects[objects.length-1]?.id??null,artboardId:artboard.id}),disabled:!objects.length,hint:'Ctrl+A'},{label:'取消选择',run:()=>setSelection(emptySelection()),disabled:!selection.objectIds.length,hint:'Ctrl+Shift+A'}],
     '图像':[{label:'画布大小 / 画板尺寸…',run:resizeArtboard},{label:'图像大小 / 位图重采样…',disabled:true,hint:'位图资产重采样、对象整体缩放和分辨率重算尚未实现'}],
     '图层':[{label:'新建图层',run:addLayer,hint:'新建矢量图层'},{label:'新建调整图层',run:addAdjustmentLayer},{label:'删除空图层',run:()=>{const layer=doc.layers.find(item=>item.id===artboard.layerIds.at(-1));if(layer)setHistory({type:'command',command:{type:'layer.delete',id:layer.id}});},disabled:doc.layers.filter(item=>artboard.layerIds.includes(item.id)).length<=1||Boolean(doc.layers.filter(item=>artboard.layerIds.includes(item.id)).at(-1)?.objectIds.length)},{label:'新建文字对象…',run:addTextObject},{label:'删除所选对象',run:deleteSelection,disabled:!selection.objectIds.length}],
     '对象':[{label:'重复对象',run:duplicateSelection,disabled:!selection.objectIds.length,hint:'Ctrl+D'},{label:'左对齐',run:()=>setHistory({type:'command',command:{type:'object.align',ids:selection.objectIds,axis:'left'}}),disabled:selection.objectIds.length<2},{label:'水平居中',run:()=>setHistory({type:'command',command:{type:'object.align',ids:selection.objectIds,axis:'center-x'}}),disabled:selection.objectIds.length<2},{label:'右对齐',run:()=>setHistory({type:'command',command:{type:'object.align',ids:selection.objectIds,axis:'right'}}),disabled:selection.objectIds.length<2},{label:'水平等间距分布',run:()=>setHistory({type:'command',command:{type:'object.distribute',ids:selection.objectIds,axis:'horizontal'}}),disabled:selection.objectIds.length<3},{label:'垂直等间距分布',run:()=>setHistory({type:'command',command:{type:'object.distribute',ids:selection.objectIds,axis:'vertical'}}),disabled:selection.objectIds.length<3}],
@@ -377,15 +400,21 @@ export default function App() {
     '表格':[{label:'表格功能',disabled:true,hint:'表格对象模型尚未实现'}],
     '工具':[{label:'选择工具',run:()=>setActiveTool('select')},{label:'钢笔工具',run:()=>setActiveTool('pen')},{label:'文字工具',run:()=>setActiveTool('text')}]
   };
+  useEffect(()=>{try{const saved=localStorage.getItem('yutugs-photo-shortcuts');if(saved){const parsed=JSON.parse(saved) as ShortcutBinding[];if(Array.isArray(parsed)&&!findShortcutConflicts(parsed).length)setShortcutBindings(parsed);}}catch{/* Ignore invalid local shortcut settings. */}},[]);
+  useEffect(()=>{localStorage.setItem('yutugs-photo-shortcuts',JSON.stringify(shortcutBindings));},[shortcutBindings]);
   useEffect(()=>{let alive=true;invoke<string[]>('list_installed_fonts').then(fonts=>{if(alive){const clean=[...new Set(fonts.map(x=>x.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-CN'));setInstalledFonts(clean);setFontLoadState(`已读取 ${clean.length} 个系统字体`);}}).catch(()=>{if(alive)setFontLoadState('当前为浏览器预览环境，使用常用字体列表；桌面版可读取系统字体');});return()=>{alive=false;};},[]);
-  useEffect(()=>{const handler=(event:KeyboardEvent)=>{const target=event.target as HTMLElement|null;if(target&&(target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.isContentEditable))return;
+  useEffect(()=>{const handler=(event:KeyboardEvent)=>{
+    if(shortcutCaptureAction){event.preventDefault();event.stopPropagation();if(event.key!=='Escape'&&!['Control','Shift','Alt','Meta'].includes(event.key)){const keys=eventToShortcut(event);const next=shortcutBindings.map(binding=>binding.action===shortcutCaptureAction?{...binding,keys}:binding);const conflicts=findShortcutConflicts(next);if(conflicts.length)window.alert(`快捷键冲突：${conflicts.map(item=>item.keys).join('、')}，请重新设置。`);else setShortcutBindings(next);}setShortcutCaptureAction(null);return;}
+    const target=event.target as HTMLElement|null;if(target&&(target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.isContentEditable))return;
+    const pressed=eventToShortcut(event);const binding=shortcutBindings.find(item=>item.keys.toLowerCase().replaceAll(' ','')===pressed.toLowerCase().replaceAll(' ',''));
+    if(binding){event.preventDefault();if(binding.action==='find')openFind(false);else if(binding.action==='replace')openFind(true);else if(binding.action==='raiseObject'&&selection.activeObjectId)setHistory({type:'command',command:{type:'object.reorder',id:selection.activeObjectId,direction:'up'}});else if(binding.action==='lowerObject'&&selection.activeObjectId)setHistory({type:'command',command:{type:'object.reorder',id:selection.activeObjectId,direction:'down'}});else if(binding.action==='undo')setHistory({type:'undo'});else if(binding.action==='redo')setHistory({type:'redo'});else if(binding.action==='save')void saveDocument();return;}
     if(event.code==='Space'){spacePressed.current=true;event.preventDefault();return;}
     if(event.key==='Escape'){cancelDrag();cancelPenPath();setSelection(emptySelection());}
     else if(event.key==='Enter'&&activeTool==='pen'){event.preventDefault();finishPenPath();}
     else if(event.key==='Delete'||event.key==='Backspace'){event.preventDefault();deleteSelection();}
     else if(event.key==='ArrowLeft'||event.key==='ArrowRight'||event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();const amount=event.shiftKey?10:1;nudge(event.key==='ArrowLeft'?-amount:event.key==='ArrowRight'?amount:0,event.key==='ArrowUp'?-amount:event.key==='ArrowDown'?amount:0);}
-    else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'){event.preventDefault();findNext();}
-    else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='h'){event.preventDefault();replaceAllMatches();}
+    else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'){event.preventDefault();openFind(false);}
+    else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='h'){event.preventDefault();openFind(true);}
     else if((event.ctrlKey||event.metaKey)&&event.key==='PageUp'){event.preventDefault();if(selection.activeObjectId)setHistory({type:'command',command:{type:'object.reorder',id:selection.activeObjectId,direction:'up'}});}
     else if((event.ctrlKey||event.metaKey)&&event.key==='PageDown'){event.preventDefault();if(selection.activeObjectId)setHistory({type:'command',command:{type:'object.reorder',id:selection.activeObjectId,direction:'down'}});}
     else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='t'){event.preventDefault();setActiveTool('select');setTransformMode('free');}
@@ -494,6 +523,8 @@ export default function App() {
         {newDocMode==='photo'?<><div className="new-doc-subheading">高级选项 · Photoshop 文档</div><div className="new-doc-row"><label>像素长宽比<select value={newDocPixelAspect} onChange={e=>setNewDocPixelAspect(e.target.value as typeof newDocPixelAspect)}><option value="square">方形像素</option><option value="1.33">D1/DV NTSC 1.33</option><option value="0.9">D1/DV NTSC 0.9</option><option value="custom">自定义</option></select></label>{newDocPixelAspect==='custom'&&<label>自定义比例<input type="number" min="0.01" step="0.01" value={newDocPixelAspectCustom} onChange={e=>setNewDocPixelAspectCustom(Number(e.target.value))}/></label>}<label>背景默认值<select value={newDocBackground} onChange={e=>setNewDocBackground(e.target.value as typeof newDocBackground)}><option value="white">白色</option><option value="black">背景色</option><option value="transparent">透明</option><option value="custom">自定义颜色</option></select></label></div></>:<><div className="new-doc-subheading">画板与印刷选项 · Illustrator 文档</div><div className="new-doc-row"><label>画板数量<input type="number" min="1" max="100" value={newDocArtboards} onChange={e=>setNewDocArtboards(Math.min(100,Math.max(1,Number(e.target.value)||1)))}/></label><label>画板列数<input type="number" min="1" max="20" value={newDocArtboardColumns} onChange={e=>setNewDocArtboardColumns(Math.min(20,Math.max(1,Number(e.target.value)||1)))}/></label><label>画板间距（px）<input type="number" min="0" max="2000" value={newDocArtboardSpacing} onChange={e=>setNewDocArtboardSpacing(Math.max(0,Number(e.target.value)||0))}/></label></div><div className="new-doc-row"><label>出血上（mm）<input type="number" min="0" step="0.1" value={newDocBleed.top} onChange={e=>setNewDocBleed(v=>({...v,top:Math.max(0,Number(e.target.value)||0)}))}/></label><label>出血右（mm）<input type="number" min="0" step="0.1" value={newDocBleed.right} onChange={e=>setNewDocBleed(v=>({...v,right:Math.max(0,Number(e.target.value)||0)}))}/></label><label>出血下（mm）<input type="number" min="0" step="0.1" value={newDocBleed.bottom} onChange={e=>setNewDocBleed(v=>({...v,bottom:Math.max(0,Number(e.target.value)||0)}))}/></label><label>出血左（mm）<input type="number" min="0" step="0.1" value={newDocBleed.left} onChange={e=>setNewDocBleed(v=>({...v,left:Math.max(0,Number(e.target.value)||0)}))}/></label></div><div className="new-doc-row"><label>栅格效果分辨率<select value={newDocRasterPpi} onChange={e=>setNewDocRasterPpi(Number(e.target.value) as 72|150|300)}><option value={72}>屏幕（72 PPI）</option><option value={150}>中（150 PPI）</option><option value={300}>高（300 PPI）</option></select></label><label>预览模式<select value={newDocPreviewMode} onChange={e=>setNewDocPreviewMode(e.target.value as typeof newDocPreviewMode)}><option value="default">默认（矢量）</option><option value="pixel">像素预览</option><option value="overprint">叠印预览（设置记录）</option></select></label></div><label className="new-doc-check"><input type="checkbox" checked={newDocPixelGrid} onChange={e=>setNewDocPixelGrid(e.target.checked)}/> 将新对象对齐到像素网格（设置记录）</label></>}
         <p>说明：当前编辑内核为 SVG 矢量对象与独立位图资产。颜色模式、位深、像素长宽比、栅格效果和预览模式在本版本作为文档创建设置保存；尚不代表编辑器已经具备 Photoshop 式原生高位深像素编辑管线或 Illustrator 完整叠印预览。CMYK 颜色仍需在印前工作区加载实际输出 ICC 后执行转换与分色。</p>
       </div></div><footer><button onClick={()=>setShowNewDocDialog(false)}>取消</button><button className="primary-action" onClick={createNewDocument}>创建文档</button></footer></section></div>}
+     {shortcutSettingsOpen && <div className="modal-backdrop"><section className="new-document-dialog" role="dialog" aria-modal="true" aria-label="键盘快捷键设置"><header><div><b>键盘快捷键</b><small>点击录入后按下组合键；设置保存在本机</small></div><button onClick={()=>setShortcutSettingsOpen(false)}>×</button></header><div className="new-doc-settings">{shortcutBindings.map(binding=><div className="new-doc-row" key={binding.action}><label>{binding.label}</label><span>{binding.keys}</span><button onClick={()=>setShortcutCaptureAction(binding.action)}>{shortcutCaptureAction===binding.action?'请按下快捷键…':'录入快捷键'}</button></div>)}<small>冲突检测：{findShortcutConflicts(shortcutBindings).length?'存在冲突':'无冲突'}</small></div><footer><button onClick={()=>{setShortcutBindings(DEFAULT_SHORTCUTS);setShortcutCaptureAction(null);}}>恢复默认</button><button className="primary-action" onClick={()=>{setShortcutCaptureAction(null);setShortcutSettingsOpen(false);}}>完成</button></footer></section></div>}
+     {findOpen && <div className="modal-backdrop"><section className="new-document-dialog" role="dialog" aria-modal="true" aria-label="查找和替换"><header><div><b>查找和替换</b><small>在对象名称及文字内容中查找</small></div><button onClick={()=>setFindOpen(false)}>×</button></header><div className="new-doc-settings"><label>查找内容<input autoFocus value={findQuery} onChange={event=>{setFindQuery(event.target.value);setFindIndex(-1);}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();navigateFind(1);}}}/></label><label>替换为<input value={findReplacement} onChange={event=>setFindReplacement(event.target.value)}/></label><div className="new-doc-row"><label className="new-doc-check"><input type="checkbox" checked={findCaseSensitive} onChange={event=>setFindCaseSensitive(event.target.checked)}/> 区分大小写</label><label className="new-doc-check"><input type="checkbox" checked={findWholeWord} onChange={event=>setFindWholeWord(event.target.checked)}/> 完整单词匹配</label></div><div className="new-doc-row"><label className="new-doc-check"><input type="checkbox" checked={findIncludeNames} onChange={event=>setFindIncludeNames(event.target.checked)}/> 查找对象名称</label><label className="new-doc-check"><input type="checkbox" checked={findIncludeText} onChange={event=>setFindIncludeText(event.target.checked)}/> 查找文字内容</label></div><small>匹配结果：{findMatches.length?`${Math.max(0,findIndex+1)} / ${findMatches.length}`:'尚未查找'}</small></div><footer><button onClick={()=>navigateFind(-1)}>上一个</button><button onClick={()=>navigateFind(1)}>下一个</button><button onClick={replaceCurrentMatch}>替换</button><button onClick={replaceAllMatches}>全部替换</button><button className="primary-action" onClick={()=>setFindOpen(false)}>完成</button></footer></section></div>}
     {showPackagingDialog && <div className="modal-backdrop"><section className="packaging-dialog"><header><b>新建包装模板</b><button onClick={()=>setShowPackagingDialog(false)}>关闭</button></header><label>包装类型<select value={packagingType} onChange={event=>{const type=event.target.value as BagType;setPackagingType(type);const first=packagingTemplates.find(item=>item.bagType===type);if(first)setPackagingTemplateId(first.id);}}>{(['常规编织袋','方底编织袋','常规 PE 袋'] as BagType[]).map(type=><option key={type}>{type}</option>)}</select></label><label>规格<select value={packagingTemplateId} onChange={event=>setPackagingTemplateId(event.target.value)}>{packagingTemplates.filter(item=>item.bagType===packagingType).map(item=><option key={item.id} value={item.id}>{getTemplateLabel(item)}</option>)}</select></label><label>出血量<select value={packagingBleed} onChange={event=>setPackagingBleed(Number(event.target.value))}><option value={2}>2 mm</option><option value={3}>3 mm</option><option value={5}>5 mm</option></select></label><p>按 300 DPI 换算为文档像素。此模板提供展开尺寸与 M 折参数；刀版、封边、制袋厂工艺仍需按实际生产规格校准。</p><button className="primary-action" onClick={createPackagingDocument}>创建包装画布</button></section></div>}
     <footer className="statusbar"><span>YGS v2 文档模型</span><span>SVG Renderer · 非 Canvas 2D</span><span>{doc.artboards.length} 个画板 · {doc.guides?.length ?? 0} 条参考线</span><div><button onClick={()=>setLeftOpen(v=>!v)}><PanelLeft size={14}/></button><button onClick={()=>setRightOpen(v=>!v)}><PanelRight size={14}/></button></div></footer>
   </div>;
