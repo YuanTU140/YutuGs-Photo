@@ -96,3 +96,7 @@
 @media(max-width:1100px){.left-panel.tool-dock-layout{width:264px}.tool-dock{width:66px;min-width:66px}.tool-inspector{padding:7px}}
 
 .canvas-stage.hand-tool-active{cursor:grab!important}.canvas-stage.hand-tool-active:active{cursor:grabbing!important}
+
+/* 1.1.12-alpha: Photoshop/Illustrator-like pen closure and in-canvas text editing */
+.pen-action-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.pen-action-row button{min-width:0;padding:7px 4px;border:1px solid #485267;border-radius:5px;background:#2a303b;color:#dce4ef;font-size:10px;cursor:pointer}.pen-action-row button:hover:not(:disabled){border-color:#9276d9;background:#403653}.pen-action-row button:disabled{opacity:.35;cursor:not-allowed}
+.canvas-text-editor{position:absolute;z-index:30;resize:both;overflow:auto;min-height:1.4em;padding:2px 4px;border:1px dashed #8b6ee8;border-radius:2px;outline:1px solid #8b6ee855;background:#ffffff18;line-height:1.25;white-space:pre;overflow-wrap:normal;transform-origin:top left;user-select:text;cursor:text}.canvas-text-editor:focus{border-style:solid;background:#ffffff20}.canvas-text-editor::placeholder{color:#9299a7;font:12px/1.4 Inter,"Microsoft YaHei",sans-serif}
