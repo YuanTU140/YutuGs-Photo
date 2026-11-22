@@ -17,11 +17,3 @@
 
 ## Important status
 This is an incremental development build, not a fully accepted release. See `CHANGELOG-1.1.16-alpha.md` for implemented scope and outstanding items.
-
-## Follow-up implementation pass
-- Added in-editor find/replace panel with previous/next navigation, field scope, case sensitivity, whole-word matching, replace-current and replace-all.
-- Added customizable shortcut capture UI, conflict detection, default reset, and local persistence.
-- Existing guide management and drag/snap/YGS persistence paths were retained after source inspection.
-- Existing packaging-template creation explicitly sets CMYK document mode, 300 DPI, and bleed metadata.
-- Static conflict-marker check passed after changes.
-- Full typecheck, Vitest, production build, Windows installer/EXE manifest inspection, and non-elevated startup remain unverified because dependency installation timed out and no Windows build environment/EXE was available.

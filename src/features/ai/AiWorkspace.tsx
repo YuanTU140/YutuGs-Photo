@@ -59,14 +59,14 @@ export default function AiWorkspace({ onBack, onApply }: { onBack: () => void; o
   }
 
   return <main className="ai-studio">
-    <header className="ai-topbar"><div className="ai-brand"><span className="ai-brand-mark"><Sparkles size={19}/></span><div><b>YutuGs <span>AI Studio</span></b><small>独立本地 AI 创作与图像编辑工作区</small></div></div>
+    <header className="ai-topbar"><div className="ai-brand"><span className="ai-brand-mark"><Sparkles size={19}/></span><div><b>YutuGs <span>AI 智能工作台</span></b><small>独立本地 AI 创作与图像编辑工作区</small></div></div>
       <div className="ai-top-actions"><span className={`ai-status ${health ? "connected" : ""}`}><i/> {health ? `本地模型服务已连接 · ${health.device.toUpperCase()}` : "本地模型服务未连接"}</span><button className="ai-back" onClick={onBack}><ArrowLeft size={15}/> 返回专业设计工作区</button></div>
     </header>
     <div className="ai-layout"><aside className="ai-sidebar"><div className="ai-section-title">AI 编辑工具</div>
       {tasks.map(({ id, title, detail, icon: Icon }) => <button key={id} className={`ai-task ${task === id ? "selected" : ""}`} onClick={() => { setTask(id); setServiceError(""); }}><span><Icon size={18}/></span><div><b>{title}</b><small>{detail}</small></div></button>)}
       <div className="ai-sidebar-foot"><ShieldCheck size={15}/> 默认本机推理；若修改服务地址，图像会发送到该地址</div>
     </aside>
-    <section className="ai-main"><div className="ai-heading"><div><div className="ai-eyebrow">YUTUGS LOCAL INTELLIGENCE</div><h1>{activeTask.title}</h1><p>{activeTask.detail}。推理由本机模型服务执行。</p></div><button className="ai-settings" onClick={() => setServiceOpen(v => !v)}><Settings2 size={16}/> 本地服务设置</button></div>
+    <section className="ai-main"><div className="ai-heading"><div><div className="ai-eyebrow">YUTUGS 本地智能引擎</div><h1>{activeTask.title}</h1><p>{activeTask.detail}。推理由本机模型服务执行。</p></div><button className="ai-settings" onClick={() => setServiceOpen(v => !v)}><Settings2 size={16}/> 本地服务设置</button></div>
       <div className="ai-work-grid"><section className="ai-card ai-input-card"><div className="ai-card-title">任务参数</div>
         {needsImage && <button className="ai-upload" onClick={() => fileRef.current?.click()}><ImagePlus size={22}/><b>{reference ? reference.name : "选择原始图像"}</b><small>PNG、JPG、WEBP · 默认发送到本机 AI 服务；修改服务地址后将发送到该地址</small></button>}
         <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e => setReference(e.target.files?.[0] || null)}/>
@@ -88,6 +88,6 @@ export default function AiWorkspace({ onBack, onApply }: { onBack: () => void; o
       </section></div>
       {serviceOpen && <section className="ai-card ai-service-card"><div className="ai-card-title">本地模型服务连接</div><label className="ai-label">服务地址</label><input value={serviceUrl} onChange={e => setServiceUrl(e.target.value)} placeholder="http://127.0.0.1:8765"/><div className="ai-result-actions"><button onClick={() => void refreshHealth()}><RefreshCw size={14}/> 测试连接</button></div><p>默认只连接本机 127.0.0.1。模型在首次调用时下载并加载；图像推理在本地执行。修复、移除和扩展需要黑白蒙版。</p><div className="ai-provider-state">连接状态：<b>{health ? `已连接（${health.device}）` : "未连接"}</b></div>{serviceError && <div className="ai-disabled-note">{serviceError}</div>}</section>}
     </section></div>
-    <footer className="ai-footer"><span>YUTUGS PHOTO · LOCAL AI</span><span>本地模型服务 · 请确认服务地址可信</span><span>{health ? "服务在线" : "服务离线"}</span></footer>
+    <footer className="ai-footer"><span>YUTUGS PHOTO · 本地 AI</span><span>本地模型服务 · 请确认服务地址可信</span><span>{health ? "服务在线" : "服务离线"}</span></footer>
   </main>;
 }

@@ -27,6 +27,8 @@ export type VectorObject = BaseObject & {
   geometry: VectorPath | { x: number; y: number; width: number; height: number } | { x: number; y: number; text: string; fontSize: number; fontFamily: string; fontWeight?: string; fontStyle?: string };
   fill: Color | null; stroke: Color | null; strokeWidth: number;
   compositeMode?: 'normal' | 'erase';
+  /** Stable spot-ink identifier; the spot plate is exported as a separate vector SVG. */
+  spotInkId?: Id | null;
   filter?: { kind: 'gaussian-blur' | 'brightness' | 'hue-rotate'; amount: number } | null;
 };
 export type RasterObject = BaseObject & { kind: 'image'; assetId: Id; x: number; y: number; width: number; height: number };
@@ -52,11 +54,13 @@ export type DocumentSetup = {
   previewMode: 'default' | 'pixel' | 'overprint';
   alignNewObjectsToPixelGrid: boolean;
 };
+export type SpotInk = { id: Id; name: string; color: Color; kind: 'spot' | 'process'; };
 export type YgsDocument = {
   magic: 'YGS2'; schemaVersion: 2; appVersion: string; id: Id; name: string;
   units: 'px' | 'mm' | 'cm' | 'in' | 'pt'; resolutionDpi: number; colorMode: 'RGB' | 'CMYK' | 'Grayscale';
   artboards: Artboard[]; layers: Layer[]; objects: Record<Id, EditorObject>; assets: Record<Id, RasterAsset>;
   guides?: Guide[];
+  spotInks?: SpotInk[];
   documentSetup?: DocumentSetup;
   packaging?: { bagType: string; capacity?: string; widthCm: number; heightCm: number; leftMFoldCm: number; rightMFoldCm: number; bleedMm: number };
   adjustments: Record<Id, Adjustment[]>; colorManagement?: ColorManagementSettings; metadata: { createdAt: string; modifiedAt: string };
@@ -69,10 +73,10 @@ export function createDocument(name = '未命名设计', width = 1920, height = 
   const artboardId = createId('artboard');
   const layerId = createId('layer');
   return {
-    magic: 'YGS2', schemaVersion: 2, appVersion: '1.1.16-alpha', id: createId('doc'), name,
+    magic: 'YGS2', schemaVersion: 2, appVersion: '1.1.17-alpha', id: createId('doc'), name,
     units: 'px', resolutionDpi: 300, colorMode: 'RGB',
     artboards: [{ id: artboardId, name: '画板 1', x: 0, y: 0, width, height, background: '#ffffff', layerIds: [layerId] }],
     layers: [{ id: layerId, name: '图层 1', visible: true, locked: false, opacity: 1, objectIds: [], parentId: null, blendMode: 'normal', kind: 'vector' }],
-    objects: {}, assets: {}, guides: [], adjustments: {}, colorManagement: { workingRgbProfile: 'sRGB IEC61966-2.1', outputCmykProfile: null, renderingIntent: 'relative-colorimetric', blackPointCompensation: true, totalInkLimit: 300 }, metadata: { createdAt: now, modifiedAt: now },
+    objects: {}, assets: {}, guides: [], spotInks: [], adjustments: {}, colorManagement: { workingRgbProfile: 'sRGB IEC61966-2.1', outputCmykProfile: null, renderingIntent: 'relative-colorimetric', blackPointCompensation: true, totalInkLimit: 300 }, metadata: { createdAt: now, modifiedAt: now },
   };
 }

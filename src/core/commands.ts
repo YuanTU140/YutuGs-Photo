@@ -5,12 +5,13 @@ import { affineToProjective, multiplyProjective, invertProjective, identityProje
 export type EditorCommand =
   | { type: 'object.add'; object: EditorObject }
   | { type: 'object.delete'; ids: Id[] }
-  | { type: 'object.update'; id: Id; patch: Partial<Pick<import('./model').VectorObject, 'geometry'|'fill'|'stroke'|'strokeWidth'|'opacity'|'name'|'filter'|'compositeMode'>> }
-  | { type: 'object.update.batch'; patches: Array<{ id: Id; patch: Partial<EditorObject> }> }
+  | { type: 'object.update'; id: Id; patch: Partial<Pick<import('./model').VectorObject, 'geometry'|'fill'|'stroke'|'strokeWidth'|'opacity'|'name'|'filter'|'compositeMode'|'spotInkId'>> }
+  | { type: 'object.update.batch'; patches: Array<{ id: Id; patch: Partial<EditorObject> & { spotInkId?: Id | null } }> }
   | { type: 'object.reorder'; id: Id; direction: 'up' | 'down' }
   | { type: 'adjustment.add'; layerId: Id; adjustment: import('./model').Adjustment }
   | { type: 'adjustment.update'; layerId: Id; adjustmentId: Id; patch: Partial<Pick<import('./model').Adjustment, 'enabled'|'opacity'|'parameters'>> }
   | { type: 'document.colorManagement.update'; patch: Partial<import('./model').ColorManagementSettings> }
+  | { type: 'document.spotInks.update'; spotInks: import('./model').SpotInk[] }
   | { type: 'object.transform'; id: Id; matrix: EditorObject['transform'] }
   | { type: 'object.transform.batch'; transforms: Array<{ id: Id; matrix: EditorObject['transform'] }> }
   | { type: 'object.projective.batch'; transforms: Array<{ id: Id; matrix: NonNullable<EditorObject['projectiveTransform']> }> }
@@ -53,6 +54,7 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
       next.adjustments[command.layerId] = [...(next.adjustments[command.layerId] ?? []), structuredClone(command.adjustment)];
       break;
     }
+    case 'document.spotInks.update': { next.spotInks = structuredClone(command.spotInks); break; }
     case 'document.colorManagement.update': {
       next.colorManagement = { workingRgbProfile: 'sRGB IEC61966-2.1', outputCmykProfile: null, renderingIntent: 'relative-colorimetric', blackPointCompensation: true, totalInkLimit: 300, ...(next.colorManagement ?? {}), ...structuredClone(command.patch) };
       break;
