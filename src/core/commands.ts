@@ -21,6 +21,7 @@ export type EditorCommand =
   | { type: 'guide.clear' }
   | { type: 'layer.add'; layer: Layer; artboardId: Id }
   | { type: 'layer.update'; id: Id; patch: Partial<Pick<Layer, 'name'|'visible'|'locked'|'opacity'|'blendMode'>> }
+  | { type: 'layer.reorder'; id: Id; artboardId: Id; toIndex: number }
   | { type: 'layer.delete'; id: Id }
   | { type: 'artboard.add'; artboard: Artboard; layer: Layer }
   | { type: 'artboard.resize'; id: Id; width: number; height: number };
@@ -159,6 +160,16 @@ export function reduceDocument(doc: YgsDocument, command: EditorCommand): YgsDoc
       const layer = next.layers.find(item => item.id === command.id);
       if (!layer) throw new Error(`Layer not found: ${command.id}`);
       Object.assign(layer, command.patch);
+      break;
+    }
+    case 'layer.reorder': {
+      const artboard = next.artboards.find(item => item.id === command.artboardId);
+      if (!artboard) throw new Error(`Artboard not found: ${command.artboardId}`);
+      const fromIndex = artboard.layerIds.indexOf(command.id);
+      if (fromIndex < 0) throw new Error(`Layer ${command.id} does not belong to artboard ${command.artboardId}`);
+      if (!Number.isInteger(command.toIndex) || command.toIndex < 0 || command.toIndex >= artboard.layerIds.length) throw new Error('Layer target index is out of range');
+      const [movedId] = artboard.layerIds.splice(fromIndex, 1);
+      artboard.layerIds.splice(command.toIndex, 0, movedId);
       break;
     }
     case 'layer.delete': {

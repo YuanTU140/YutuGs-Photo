@@ -151,7 +151,7 @@ describe('even object distribution command', () => {
     expect(bounds[1].minX - bounds[0].maxX).toBeCloseTo(bounds[2].minX - bounds[1].maxX);
     expect(bounds[2].maxX).toBe(180);
     expect(undo(distributed).document.objects.b.transform[4]).toBe(0);
-    expect(redo(undo(distributed)).document.objects.b.transform[4]).not.toBe(0);
+    expect(getObjectBounds(redo(undo(distributed)).document.objects.b)!.minX).toBeGreaterThan(0);
   });
   it('distributes objects vertically while preserving the outer bounds', () => {
     const initial = createDocument();
@@ -201,27 +201,14 @@ describe('restored layer, guide and raster-result commands', () => {
 
 describe('editable convex vector pathfinder', () => {
   const makeRect=(id:string,x:number,y:number,w:number,h:number)=>({id,name:id,kind:'rect' as const,geometry:{x,y,width:w,height:h},transform:[1,0,0,1,0,0] as [number,number,number,number,number,number],opacity:1,visible:true,locked:false,layerId:'layer_1',fill:'#222',stroke:null,strokeWidth:0});
-  
+  const pathArea=(geometry:import('../src/core/model').VectorPath)=>{let area=0;for(let i=0;i<geometry.nodes.length;i++){const a=geometry.nodes[i].anchor,b=geometry.nodes[(i+1)%geometry.nodes.length].anchor;area+=a.x*b.y-b.x*a.y;}return Math.abs(area/2);};
   it('returns editable path geometry for union, subtract and intersection',()=>{
-    const a=makeRect('a',0,0,100,100), b=makeRect('b',50,0,100,100);
-    
-    // 联合：两个矩形合并后，应该形成一个 150x100 的大多边形，锚点数通常为 8
-    const union = booleanPath(a,b,'union');
-    expect(union.nodes.length).toBeGreaterThanOrEqual(6);
-
-    // 差集 (a - b)：左侧剩下一个 50x100 的矩形
-    const subtract = booleanPath(a,b,'subtract');
-    expect(subtract.nodes.length).toBeGreaterThanOrEqual(4); // 矩形至少有4个角
-
-    // 交集：中间重叠部分，应该是一个 50x100 的矩形
-    const intersect = booleanPath(a,b,'intersect');
-    expect(intersect.nodes.length).toBeGreaterThanOrEqual(4); 
-
-    // 排除 (并集减去交集)：通常会生成两个分离的图形（由外轮廓包裹），节点数较多
-    const exclude = booleanPath(a,b,'exclude');
-    expect(exclude.nodes.length).toBeGreaterThanOrEqual(8);
+    const a=makeRect('a',0,0,100,100),b=makeRect('b',50,0,100,100);
+    const union=booleanPath(a,b,'union');expect(union.nodes.length).toBe(8);
+    const subtract=booleanPath(a,b,'subtract');expect(pathArea(subtract)).toBeCloseTo(5000);
+    const intersect=booleanPath(a,b,'intersect');expect(pathArea(intersect)).toBeCloseTo(5000);
+    const exclude=booleanPath(a,b,'exclude');expect(pathArea(exclude)).toBeCloseTo(10000);
   });
-
   it('rejects non-convex paths instead of silently generating incorrect geometry',()=>{
     const a=makeRect('a',0,0,10,10);const b={...makeRect('b',0,0,10,10),kind:'path' as const,geometry:{nodes:[{anchor:{x:0,y:0},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:10,y:0},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:5,y:5},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:10,y:10},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:0,y:10},inHandle:null,outHandle:null,kind:'corner' as const}],segments:[{type:'move' as const,to:0},{type:'line' as const,to:1},{type:'line' as const,to:2},{type:'line' as const,to:3},{type:'line' as const,to:4}],closed:true,fillRule:'nonzero' as const}};
     expect(()=>booleanPath(a,b,'intersect')).toThrow(/凸/);
@@ -252,7 +239,6 @@ describe('SVG vector brush, eraser mask and text style persistence',()=>{
     expect((reopened.objects.styled_text as import('../src/core/model').VectorObject).geometry).toMatchObject({fontFamily:'Microsoft YaHei',fontWeight:'700',fontStyle:'italic'});
   });
 });
-<<<<<<< HEAD
 
 
 describe('projective transform geometry', () => {
@@ -324,5 +310,33 @@ describe('Photoshop / Illustrator document setup metadata',()=>{
     expect(reopened.colorMode).toBe('CMYK');expect(reopened.units).toBe('mm');
   });
 });
-=======
->>>>>>> 65e80f31a0cf00e5d88064b2671b80a199a7074f
+
+
+describe('layer stack ordering', () => {
+  it('reorders layers within their artboard and supports undo/redo', () => {
+    const document = createDocument('layer order');
+    const artboard = document.artboards[0];
+    const baseLayer = document.layers[0];
+    const upperLayer = { ...baseLayer, id: 'layer_upper', name: '上层', objectIds: [] };
+    const topLayer = { ...baseLayer, id: 'layer_top', name: '顶层', objectIds: [] };
+    document.layers.push(upperLayer, topLayer);
+    artboard.layerIds.push(upperLayer.id, topLayer.id);
+
+    const initial = createHistory(document);
+    const reordered = dispatch(initial, { type: 'layer.reorder', id: upperLayer.id, artboardId: artboard.id, toIndex: 2 });
+    expect(reordered.document.artboards[0].layerIds).toEqual([baseLayer.id, topLayer.id, upperLayer.id]);
+    expect(undo(reordered).document.artboards[0].layerIds).toEqual([baseLayer.id, upperLayer.id, topLayer.id]);
+    expect(redo(undo(reordered)).document.artboards[0].layerIds).toEqual([baseLayer.id, topLayer.id, upperLayer.id]);
+  });
+
+  it('rejects layers from another artboard and invalid target indexes', () => {
+    const document = createDocument('layer order validation');
+    const otherLayer = { ...document.layers[0], id: 'other_layer', objectIds: [] };
+    const otherArtboard = { ...document.artboards[0], id: 'other_artboard', layerIds: [otherLayer.id] };
+    document.layers.push(otherLayer);
+    document.artboards.push(otherArtboard);
+    const history = createHistory(document);
+    expect(() => dispatch(history, { type: 'layer.reorder', id: otherLayer.id, artboardId: document.artboards[0].id, toIndex: 0 })).toThrow();
+    expect(() => dispatch(history, { type: 'layer.reorder', id: document.layers[0].id, artboardId: document.artboards[0].id, toIndex: 1 })).toThrow();
+  });
+});

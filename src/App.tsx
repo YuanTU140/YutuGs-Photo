@@ -1,51 +1,42 @@
-import type { ReactNode } from 'react';
-import type { Artboard, EditorObject, VectorObject, RasterAsset, Guide, Layer, YgsDocument, Adjustment } from '../core/model';
-import type { Viewport } from '../core/viewport';
-import { projectiveToCssMatrix3d, projectiveIdentity } from '../core/projective';
+import { Fragment, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { FilePlus2, MousePointer2, PenTool, Square, Circle, Hand, ZoomIn, ZoomOut, Layers3, PanelLeft, PanelRight, Save, Undo2, Redo2, AlignStartVertical, AlignCenterHorizontal, AlignEndVertical, Trash2, Eye, EyeOff, Lock, Unlock } from 'lucide-react';
+import { createDocument, createId, identityMatrix } from './core/model';
+import type { EditorObject, Id, Point } from './core/model';
+import type { EditorCommand } from './core/commands';
+import { createHistory, dispatch, redo, undo } from './core/history';
+import type { HistoryState } from './core/history';
+import { defaultViewport, panBy, screenToDocument, zoomAt } from './core/viewport';
+import type { Viewport } from './core/viewport';
+import { applyMatrix, getObjectBounds, hitTest, invertMatrix, multiplyMatrices, unionBounds } from './core/geometry';
+import { createInteractiveTransform } from './core/transform';
+import { identityProjective, multiplyProjective, projectiveFromRectToQuad, projectiveToCssMatrix3d, projectiveIdentity, applyProjective, invertProjective, affineToProjective } from './core/projective';
+import { emptySelection, getSelectionBounds, selectByPoint, selectInRectangle } from './core/selection';
+import type { SelectionState } from './core/model';
+import SvgArtboard from './renderer/SvgArtboard';
+import { importSvgText } from './io/svg';
+import { encodeYgs, decodeYgs } from './persistence/ygs';
+import AiWorkspace from './features/ai/AiWorkspace';
+import PrintColorWorkspace from './features/print/PrintColorWorkspace';
+import { packagingTemplates, getTemplateLabel, type BagType } from './lib/packagingTemplates';
+import { booleanPath } from './core/pathBoolean';
 
-type Props = { 
-  artboard: Artboard; 
-  objects: Record<string, EditorObject>; 
-  assets?: Record<string, RasterAsset>; 
-  viewport: Viewport; 
-  previewTransforms?: Record<string, EditorObject['transform']>; 
-  previewProjectives?: Record<string, NonNullable<EditorObject['projectiveTransform']>>; // 补充此属性
-  selectionBounds?: { minX: number; minY: number; maxX: number; maxY: number } | null; 
-  marquee?: { x: number; y: number; width: number; height: number } | null; 
-  guides?: Guide[]; 
-  showGoldenGuides?: boolean; 
-  packaging?: YgsDocument['packaging']; 
-  layers?: Layer[]; 
-  adjustments?: Record<string, Adjustment[]>; 
-  active?: boolean;
-  transformMode?: 'free'|'perspective'|'distort'; // 补充此属性
-};
-
-function pathData(g: any, _id?: string) { 
-  return g.segments.map((segment: any, i: number) => { 
-    const target=g.nodes[segment.to]?.anchor;
-    if(!target)return '';
-    if(segment.type==='move')return `${i?' ':' '}M ${target.x} ${target.y}`;
-    if(segment.type==='line')return `L ${target.x} ${target.y}`;
-    if(segment.type==='quadratic'&&segment.control)return `Q ${segment.control.x} ${segment.control.y} ${target.x} ${target.y}`;
-    if(segment.type==='cubic'&&segment.from!==undefined){
-      const from=g.nodes[segment.from],c1=from?.outHandle??from?.anchor,c2=g.nodes[segment.to]?.inHandle??target;
-      return `C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${target.x} ${target.y}`;
-    }
-    return '';
-  }).join(' ')+(g.closed?' Z':''); 
-}
-
-function renderObject(object: EditorObject, assets: Record<string, RasterAsset>, previewTransform?: EditorObject['transform'], previewProjective?: NonNullable<EditorObject['projectiveTransform']>) {
-  if (object.kind === 'image') { 
-    const asset=assets[object.assetId];
-    if(!asset?.dataUrl)return null;
-    return <image key={object.id} href={asset.dataUrl} x={object.x} y={object.y} width={object.width} height={object.height} transform={`matrix(${(previewTransform??object.transform).join(' ')})`} opacity={object.opacity}/>; 
+type HistoryAction = { type: 'undo' } | { type: 'redo' } | { type: 'command'; command: EditorCommand } | { type: 'replace'; document: ReturnType<typeof createDocument> };
+function historyReducer(state: HistoryState, action: HistoryAction) {
+  switch (action.type) {
+    case 'undo': return undo(state);
+    case 'redo': return redo(state);
+    case 'replace': return createHistory(action.document);
+    case 'command': return dispatch(state, action.command);
   }
-<<<<<<< HEAD
 }
-type DragState = { kind: 'move'|'marquee'|'resize'|'rotate'|'projective'|'draw'|'pan'|'stroke'|'node'|'pen-handle'; pointerId: number; start: Point; current: Point; ids: Id[]; initial: Record<string, EditorObject['transform']>; initialProjectives?: Record<string, NonNullable<EditorObject['projectiveTransform']>>; corner?: 'nw'|'ne'|'se'|'sw'; bounds: NonNullable<ReturnType<typeof getSelectionBounds>> | null; handle?: import('./core/transform').TransformHandle; additive: boolean; tool?: string; viewportStart?: Viewport; points?: Point[]; objectId?: Id; nodeIndex?: number; nodeHandle?: 'anchor'|'in'|'out'; nodeMatrix?: EditorObject['transform']; nodeProjective?: EditorObject['projectiveTransform']; initialGeometry?: import('./core/model').VectorPath };
-const HANDLE_POINTS: import('./core/transform').TransformHandle[] = ['nw','n','ne','e','se','s','sw','w'];
+type TransformHandle = import('./core/transform').TransformHandle;
+type ProjectiveHandle = `p-${'nw'|'ne'|'se'|'sw'}`;
+type DragState = { kind: 'move'|'marquee'|'resize'|'rotate'|'projective'|'draw'|'pan'|'stroke'|'node'|'pen-handle'; pointerId: number; start: Point; current: Point; ids: Id[]; initial: Record<string, EditorObject['transform']>; initialProjectives?: Record<string, NonNullable<EditorObject['projectiveTransform']>>; corner?: 'nw'|'ne'|'se'|'sw'; bounds: NonNullable<ReturnType<typeof getSelectionBounds>> | null; handle?: TransformHandle; additive: boolean; tool?: string; viewportStart?: Viewport; points?: Point[]; objectId?: Id; nodeIndex?: number; nodeHandle?: 'anchor'|'in'|'out'; nodeMatrix?: EditorObject['transform']; nodeProjective?: EditorObject['projectiveTransform']; initialGeometry?: import('./core/model').VectorPath };
+function isProjectiveHandle(handle: TransformHandle | ProjectiveHandle | undefined): handle is ProjectiveHandle {
+  return typeof handle === 'string' && handle.startsWith('p-');
+}
+const HANDLE_POINTS: TransformHandle[] = ['nw','n','ne','e','se','s','sw','w'];
 function pointFromEvent(event: React.PointerEvent, element: HTMLElement, viewport: Viewport, offset: Point = {x:0,y:0}) {
   const rect=element.getBoundingClientRect();
   const point=screenToDocument({x:event.clientX-rect.left,y:event.clientY-rect.top},viewport);
@@ -120,6 +111,7 @@ export default function App() {
   const doc = history.document;
   const artboard = doc.artboards.find(item => item.id === activeArtboardId) ?? doc.artboards[0];
   const stagePoint=(event:React.PointerEvent,element:HTMLElement)=>pointFromEvent(event,element,viewport,{x:artboard.x,y:artboard.y});
+  const artboardLayers = useMemo(()=>artboard.layerIds.map(id=>doc.layers.find(layer=>layer.id===id)).filter((layer):layer is NonNullable<typeof layer>=>Boolean(layer)),[doc.layers,artboard.layerIds]);
   const objects = useMemo(()=>Object.values(doc.objects).filter(object=>artboard.layerIds.includes(object.layerId)).map(object=>{const layer=doc.layers.find(item=>item.id===object.layerId);return {...object,visible:object.visible && (layer?.visible ?? true),locked:object.locked || Boolean(layer?.locked)};}),[doc.objects,doc.layers,artboard.layerIds]);
   const selectedObjects=useMemo(()=>selection.objectIds.map(id=>doc.objects[id]).filter((item):item is EditorObject=>Boolean(item)),[selection.objectIds,doc.objects]);
   const selectionBounds=useMemo(()=>getSelectionBounds(objects,selection.objectIds),[objects,selection.objectIds]);
@@ -138,7 +130,7 @@ export default function App() {
     setActiveArtboardId(artboardId);
     setSelection({ objectIds: [], activeObjectId: null, artboardId });
   };
-  const getHandleAt=(screen:Point):import('./core/transform').TransformHandle|`p-${'nw'|'ne'|'se'|'sw'}`|undefined=>{
+  const getHandleAt=(screen:Point):TransformHandle|ProjectiveHandle|undefined=>{
     if(!selectionBounds)return;
     const x1=(selectionBounds.minX+artboard.x)*viewport.zoom+viewport.panX,x2=(selectionBounds.maxX+artboard.x)*viewport.zoom+viewport.panX;
     const y1=(selectionBounds.minY+artboard.y)*viewport.zoom+viewport.panY,y2=(selectionBounds.maxY+artboard.y)*viewport.zoom+viewport.panY;
@@ -147,110 +139,35 @@ export default function App() {
       const corners:{key:'nw'|'ne'|'se'|'sw';point:Point}[]=[{key:'nw',point:{x:x1,y:y1}},{key:'ne',point:{x:x2,y:y1}},{key:'se',point:{x:x2,y:y2}},{key:'sw',point:{x:x1,y:y2}}];
       for(const item of corners)if(Math.hypot(screen.x-item.point.x,screen.y-item.point.y)<12)return `p-${item.key}`;
       return;
-=======
-  
-  const vector=object as VectorObject; 
-  if(vector.compositeMode==='erase')return null;
-  
-  const common={
-    transform:`matrix(${(previewTransform??object.transform).join(' ')})`,
-    opacity:object.opacity,
-    fill:vector.fill??'none',
-    stroke:vector.stroke??'none',
-    strokeWidth:vector.strokeWidth,
-    strokeLinecap:'round' as const,
-    strokeLinejoin:'round' as const,
-    filter:vector.filter?`url(#object-filter-${object.id})`:undefined
+    }
+    const pts:Record<import('./core/transform').TransformHandle,Point>={nw:{x:x1,y:y1},n:{x:cx,y:y1},ne:{x:x2,y:y1},e:{x:x2,y:cy},se:{x:x2,y:y2},s:{x:cx,y:y2},sw:{x:x1,y:y2},w:{x:x1,y:cy},rotate:{x:cx,y:y1-36}};
+    for(const key of [...HANDLE_POINTS,'rotate'] as import('./core/transform').TransformHandle[])if(Math.hypot(screen.x-pts[key].x,screen.y-pts[key].y)<10)return key;
+    return;
   };
-  
-  let shape;
-  if(vector.kind==='rect'){
-    const g=vector.geometry as {x:number;y:number;width:number;height:number};
-    shape=<rect x={g.x} y={g.y} width={g.width} height={g.height} {...common}/>;
-  }
-  else if(vector.kind==='ellipse'){
-    const g=vector.geometry as {x:number;y:number;width:number;height:number};
-    shape=<ellipse cx={g.x+g.width/2} cy={g.y+g.height/2} rx={g.width/2} ry={g.height/2} {...common}/>;
-  }
-  else if(vector.kind==='text'){
-    const g=vector.geometry as {x:number;y:number;text:string;fontSize:number;fontFamily:string;fontWeight?:string;fontStyle?:string};
-    shape=<text x={g.x} y={g.y} fontSize={g.fontSize} fontFamily={g.fontFamily} fontWeight={g.fontWeight??'400'} fontStyle={g.fontStyle??'normal'} {...common}>{g.text}</text>;
-  }
-  else {
-    const g=vector.geometry as any;
-    shape=<path d={pathData(g, object.id)} fillRule={g.fillRule??'nonzero'} {...common}/>;
-  }
-
-  const finalProjective = previewProjective ?? object.projectiveTransform;
-  if (finalProjective && !projectiveIdentity(finalProjective)) {
-    return (
-      <g key={object.id} style={{ transform: projectiveToCssMatrix3d(finalProjective), transformOrigin: '0 0', transformBox: 'view-box' }}>
-        {shape}
-      </g>
-    );
-  }
-
-  return <g key={object.id}>{shape}</g>;
-}
-
-function filterMarkup(id:string,filter:{kind:string;amount:number}) { 
-  return <filter id={id} key={id} colorInterpolationFilters="sRGB">
-    {filter.kind==='gaussian-blur' ? 
-      <feGaussianBlur stdDeviation={String(Math.max(0,filter.amount))}/> : 
-    filter.kind==='brightness' ? 
-      <feComponentTransfer>
-        <feFuncR type="linear" slope={String(filter.amount)}/>
-        <feFuncG type="linear" slope={String(filter.amount)}/>
-        <feFuncB type="linear" slope={String(filter.amount)}/>
-      </feComponentTransfer> : 
-      <feColorMatrix type="hueRotate" values={String(filter.amount)}/>
->>>>>>> 65e80f31a0cf00e5d88064b2671b80a199a7074f
-    }
-  </filter>; 
-}
-
-function adjustmentFilter(id:string,items:Adjustment[]) { 
-  const enabled=items.filter(x=>x.enabled);
-  if(!enabled.length)return null;
-  return <filter id={id} key={id} colorInterpolationFilters="sRGB">
-    {enabled.map(item=>
-      item.kind==='gaussian-blur' ? 
-        <feGaussianBlur key={item.id} stdDeviation={String(Number(item.parameters.radius??2))}/> : 
-      item.kind==='brightness-contrast' ? 
-        <feComponentTransfer key={item.id}>
-          <feFuncR type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/>
-          <feFuncG type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/>
-          <feFuncB type="linear" slope={String(1+Number(item.parameters.contrast??0)/100)} intercept={String(Number(item.parameters.brightness??0)/100)}/>
-        </feComponentTransfer> : 
-      item.kind==='hue-saturation' ? 
-        <feColorMatrix key={item.id} type="hueRotate" values={String(Number(item.parameters.hue??0))}/> : 
-      null
-    )}
-  </filter>; 
-}
-
-export default function SvgArtboard({
-  artboard, objects, assets = {}, viewport, previewTransforms = {}, previewProjectives = {}, selectionBounds, marquee, guides = [], showGoldenGuides = false, packaging, layers = [], adjustments = {}, active = true
-}: Props) {
-  const layerGroups: ReactNode[] = [];
-  
-  for (const layerId of artboard.layerIds) {
-    const layer = layers.find(item => item.id === layerId);
-    if (layer && !layer.visible) continue;
-    
-    const layerAdjustment = adjustments[layerId] ?? [];
-    if (layer?.kind === 'adjustment') {
-      if (layerAdjustment.length && layerGroups.length) {
-        const previous = layerGroups.splice(0);
-        layerGroups.push(
-          <g key={`adjustment-stack-${layerId}`} filter={`url(#adjustment-filter-${artboard.id}-${layerId})`}>
-            {previous}
-          </g>
-        );
+  const onPointerDown=(event:React.PointerEvent<HTMLDivElement>)=>{
+    if(!stageRef.current)return;
+    const rect=stageRef.current.getBoundingClientRect(),screen={x:event.clientX-rect.left,y:event.clientY-rect.top};
+    const shouldPan=event.button===1||(spacePressed.current&&(event.button===0||event.button===2));
+    if(shouldPan){event.preventDefault();const next:DragState={kind:'pan',pointerId:event.pointerId,start:screen,current:screen,ids:[],initial:{},bounds:null,additive:false,viewportStart:viewport};dragRef.current=next;setDrag(next);stageRef.current.setPointerCapture(event.pointerId);return;}
+    if(event.button!==0)return;
+    const rawPoint=screenToDocument(screen,viewport);const locatedBoard=doc.artboards.find(board=>rawPoint.x>=board.x&&rawPoint.x<=board.x+board.width&&rawPoint.y>=board.y&&rawPoint.y<=board.y+board.height);if(locatedBoard&&locatedBoard.id!==artboard.id){setActiveArtboardId(locatedBoard.id);setSelection({objectIds:[],activeObjectId:null,artboardId:locatedBoard.id});setPenPoints([]);setPenNodes([]);return;}const point={x:rawPoint.x-artboard.x,y:rawPoint.y-artboard.y};
+    const additive=event.shiftKey;
+    let next:DragState|null=null;
+    if(activeTool==='text'){const layer=doc.layers.find(l=>artboard.layerIds.includes(l.id)&&!l.locked&&l.visible);if(layer){const object:EditorObject={id:createId('text'),name:textValue.slice(0,24)||'文字',kind:'text',geometry:{x:point.x,y:point.y,text:textValue,fontSize,fontFamily,fontWeight,fontStyle},transform:identityMatrix(),opacity:1,visible:true,locked:false,layerId:layer.id,fill:activeColor,stroke:null,strokeWidth:1};setHistory({type:'command',command:{type:'object.add',object}});setSelection({objectIds:[object.id],activeObjectId:object.id,artboardId:artboard.id});}return;}
+    if(activeTool==='eyedropper'){const hit=hitTest(objects,point,8/viewport.zoom);const object=hit?doc.objects[hit.id]:null;if(object&&object.kind!=='image')setActiveColor((object as import('./core/model').VectorObject).fill??(object as import('./core/model').VectorObject).stroke??activeColor);return;}
+    if(activeTool==='bucket'){const hit=hitTest(objects,point,8/viewport.zoom);const object=hit?doc.objects[hit.id]:null;if(object&&object.kind!=='image')setHistory({type:'command',command:{type:'object.update',id:object.id,patch:{fill:activeColor}}});return;}
+    if(activeTool==='pen'){next={kind:'pen-handle',pointerId:event.pointerId,start:point,current:point,ids:[],initial:{},bounds:null,additive:false};}
+    if(activeTool==='node'){const target=selection.objectIds.map(id=>doc.objects[id]).find((o):o is import('./core/model').VectorObject=>Boolean(o&&o.kind==='path'));if(target){const geometry=target.geometry as import('./core/model').VectorPath,unprojected=target.projectiveTransform?applyProjective(point,invertProjective(target.projectiveTransform)):point,nodePoint=applyMatrix(unprojected,invertMatrix(target.transform));let best=-1,bestHandle:'anchor'|'in'|'out'='anchor',distance=10/viewport.zoom;geometry.nodes.forEach((node,index)=>{for(const [handle,p] of [['anchor',node.anchor],['in',node.inHandle],['out',node.outHandle]] as const){if(!p)continue;const d=Math.hypot(p.x-nodePoint.x,p.y-nodePoint.y);if(d<distance){distance=d;best=index;bestHandle=handle;}}});if(best>=0){next={kind:'node',pointerId:event.pointerId,start:nodePoint,current:nodePoint,ids:[target.id],initial:{},bounds:null,additive:false,objectId:target.id,nodeIndex:best,nodeHandle:bestHandle,nodeMatrix:target.transform,nodeProjective:target.projectiveTransform,initialGeometry:structuredClone(geometry)};}}if(!next){const hit=hitTest(objects,point,8/viewport.zoom);if(hit)setSelection({objectIds:[hit.id],activeObjectId:hit.id,artboardId:artboard.id});} }
+    if((activeTool==='brush'||activeTool==='eraser')){next={kind:'stroke',pointerId:event.pointerId,start:point,current:point,ids:[],initial:{},bounds:null,additive:false,tool:activeTool,points:[point]};}
+    if(activeTool==='select'&&selection.objectIds.length){
+      const handle=getHandleAt(screen);
+      if(handle&&selectionBounds){
+        const initial=Object.fromEntries(selection.objectIds.map(id=>[id,doc.objects[id].transform]));
+        const initialProjectives=Object.fromEntries(selection.objectIds.map(id=>[id,doc.objects[id].projectiveTransform??identityProjective()]));
+        if(isProjectiveHandle(handle)){const corner=handle.slice(2) as 'nw'|'ne'|'se'|'sw';next={kind:'projective',pointerId:event.pointerId,start:point,current:point,ids:[...selection.objectIds],initial,initialProjectives,bounds:selectionBounds,corner,additive};}
+        else next={kind:handle==='rotate'?'rotate':'resize',pointerId:event.pointerId,start:point,current:point,ids:[...selection.objectIds],initial,initialProjectives,bounds:selectionBounds,handle,additive};
       }
-      continue;
     }
-<<<<<<< HEAD
     if(!next&&activeTool==='select'){
       const hit=hitTest(objects,point,6/viewport.zoom);
       const found=hit&&selection.objectIds.includes(hit.id)&&!additive?selection:selectByPoint(selection,objects,point,{additive,toggle:additive,tolerance:6/viewport.zoom,artboardId:artboard.id});
@@ -374,7 +291,7 @@ export default function SvgArtboard({
     '滤镜':[{label:'高斯模糊…',run:()=>promptSelectedFilter('gaussian-blur','模糊半径（SVG 单位）',3),disabled:!selectedObjects.some(o=>o.kind!=='image')},{label:'亮度增强…',run:()=>promptSelectedFilter('brightness','亮度倍率（1 为原始）',1.2),disabled:!selectedObjects.some(o=>o.kind!=='image')},{label:'色相旋转…',run:()=>promptSelectedFilter('hue-rotate','色相角度（0–360）',90),disabled:!selectedObjects.some(o=>o.kind!=='image')},{label:'新建亮度/对比度调整图层',run:addAdjustmentLayer}],
     '视图':[{label:showRulers?'隐藏标尺':'显示标尺',run:()=>setShowRulers(v=>!v),hint:'Ctrl+R'},{label:'添加垂直参考线…',run:()=>addGuide('x')},{label:'添加水平参考线…',run:()=>addGuide('y')},{label:showGoldenGuides?'隐藏黄金比例辅助线':'显示黄金比例辅助线',run:()=>setShowGoldenGuides(v=>!v)},{label:'清除全部参考线',run:()=>setHistory({type:'command',command:{type:'guide.clear'}}),disabled:!(doc.guides?.length)},{label:'放大',run:()=>setViewport(v=>zoomAt(v,{x:500,y:350},v.zoom*1.2)),hint:'+'},{label:'缩小',run:()=>setViewport(v=>zoomAt(v,{x:500,y:350},v.zoom/1.2)),hint:'-'},{label:'适合全部画板',run:fitArtboards,hint:'Ctrl+0'},{label:'重置视图',run:()=>setViewport(defaultViewport())}],
     '窗口':[{label:leftOpen?'隐藏工具面板':'显示工具面板',run:()=>setLeftOpen(v=>!v)},{label:rightOpen?'隐藏属性面板':'显示属性面板',run:()=>setRightOpen(v=>!v)}],
-    '帮助':[{label:'关于 YutuGs-Photo',run:()=>window.alert('YutuGs-Photo 1.1.7-alpha\nSVG 矢量对象内核 · YGS v2 文档模型\nCMYK 输出目前通过独立 ICC 印前服务完成。')}]
+    '帮助':[{label:'关于 YutuGs-Photo',run:()=>window.alert('YutuGs-Photo 1.1.9-alpha\nSVG 矢量对象内核 · YGS v2 文档模型\nCMYK 输出目前通过独立 ICC 印前服务完成。')}]
   };
   useEffect(()=>{let alive=true;invoke<string[]>('list_installed_fonts').then(fonts=>{if(alive){const clean=[...new Set(fonts.map(x=>x.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-CN'));setInstalledFonts(clean);setFontLoadState(`已读取 ${clean.length} 个系统字体`);}}).catch(()=>{if(alive)setFontLoadState('当前为浏览器预览环境，使用常用字体列表；桌面版可读取系统字体');});return()=>{alive=false;};},[]);
   useEffect(()=>{const handler=(event:KeyboardEvent)=>{const target=event.target as HTMLElement|null;if(target&&(target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.isContentEditable))return;
@@ -413,7 +330,7 @@ export default function SvgArtboard({
         <div className="stage-grid"/>{(viewAllArtboards?doc.artboards:[artboard]).map(board=><Fragment key={board.id}><div className="artboard-shadow" style={{left:viewport.panX+board.x*viewport.zoom,top:viewport.panY+board.y*viewport.zoom,width:board.width*viewport.zoom,height:board.height*viewport.zoom,background:board.background==='transparent'?'repeating-conic-gradient(#e5e7eb 0% 25%,#ffffff 0% 50%) 50% / 18px 18px':board.background}}/><SvgArtboard artboard={board} objects={nodePreview?{...doc.objects,[nodePreview.id]:{...(doc.objects[nodePreview.id] as EditorObject),geometry:nodePreview.geometry} as EditorObject}:doc.objects} assets={doc.assets} viewport={viewport} previewTransforms={board.id===artboard.id?previewTransforms:{}} previewProjectives={board.id===artboard.id?previewProjectives:{}} selectionBounds={board.id===artboard.id?previewBounds:null} marquee={board.id===artboard.id?marquee:null} guides={board.id===artboard.id?(doc.guides ?? []):[]} showGoldenGuides={showGoldenGuides} packaging={board.id===artboard.id?doc.packaging:undefined} layers={doc.layers} adjustments={doc.adjustments} active={board.id===artboard.id} transformMode={transformMode}/></Fragment>)}{(penPoints.length>0||penHandlePreview)&&<svg className="pen-preview" style={{left:viewport.panX+artboard.x*viewport.zoom,top:viewport.panY+artboard.y*viewport.zoom,width:artboard.width*viewport.zoom,height:artboard.height*viewport.zoom}} viewBox={`0 0 ${artboard.width} ${artboard.height}`}><polyline points={penPoints.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={activeColor} strokeWidth={2/viewport.zoom}/>{penPoints.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={4/viewport.zoom} fill="#fff" stroke={activeColor} strokeWidth={1.5/viewport.zoom}/>)}{penHandlePreview&&penPoints.length>=0&&<g><line x1={penHandlePreview.x} y1={penHandlePreview.y} x2={drag?.start.x??penHandlePreview.x} y2={drag?.start.y??penHandlePreview.y} stroke="#2687ef" strokeWidth={1/viewport.zoom}/><circle cx={penHandlePreview.x} cy={penHandlePreview.y} r={3/viewport.zoom} fill="#2687ef"/></g>}</svg>}{drag?.kind==='stroke'&&<svg className="pen-preview" style={{left:viewport.panX+artboard.x*viewport.zoom,top:viewport.panY+artboard.y*viewport.zoom,width:artboard.width*viewport.zoom,height:artboard.height*viewport.zoom}} viewBox={`0 0 ${artboard.width} ${artboard.height}`}><polyline points={[...(drag.points??[drag.start]),drag.current].map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={drag.tool==='eraser'?'#ffffff':activeColor} strokeWidth={drag.tool==='eraser'?brushSize*2:brushSize} strokeLinecap="round" strokeLinejoin="round"/></svg>}{selection.objectIds.length===1&&doc.objects[selection.objectIds[0]]?.kind==='path'&&activeTool==='node'&&(()=>{const path=doc.objects[selection.objectIds[0]] as import('./core/model').VectorObject,g=(nodePreview?.id===path.id?nodePreview.geometry:path.geometry) as import('./core/model').VectorPath;return <svg className="node-handles" style={{left:viewport.panX+artboard.x*viewport.zoom,top:viewport.panY+artboard.y*viewport.zoom,width:artboard.width*viewport.zoom,height:artboard.height*viewport.zoom}} viewBox={`0 0 ${artboard.width} ${artboard.height}`}>{g.nodes.map((node,i)=>{const mapNode=(p:Point)=>{const affine=applyMatrix(p,path.transform);return path.projectiveTransform?applyProjective(affine,path.projectiveTransform):affine;};const anchor=mapNode(node.anchor),inHandle=node.inHandle?mapNode(node.inHandle):null,outHandle=node.outHandle?mapNode(node.outHandle):null;return <g key={i}><circle cx={anchor.x} cy={anchor.y} r={5/viewport.zoom} fill="#fff" stroke="#2687ef" strokeWidth={1.5/viewport.zoom}/>{inHandle&&<><line x1={anchor.x} y1={anchor.y} x2={inHandle.x} y2={inHandle.y} stroke="#2687ef" strokeWidth={1/viewport.zoom}/><circle cx={inHandle.x} cy={inHandle.y} r={3.5/viewport.zoom} fill="#2687ef"/></>}{outHandle&&<><line x1={anchor.x} y1={anchor.y} x2={outHandle.x} y2={outHandle.y} stroke="#2687ef" strokeWidth={1/viewport.zoom}/><circle cx={outHandle.x} cy={outHandle.y} r={3.5/viewport.zoom} fill="#2687ef"/></>}</g>;})}</svg>;})()}
         {!objects.length&&!drag&&<div className="welcome-hint">交互式选择与变换已接入<br/><span>先选择矩形或椭圆工具，在画板上拖拽绘制；再使用选择工具移动、缩放或旋转对象。</span></div>}
       </div></main>
-      {rightOpen && <aside className="right-panel"><div className="panel-heading">属性</div>{selectionBounds?<div className="selection-info"><b>{selectedObjects.length} 个对象</b><span>X：{Math.round(selectionBounds.minX)} px</span><span>Y：{Math.round(selectionBounds.minY)} px</span><span>宽：{Math.round(selectionBounds.width)} px</span><span>高：{Math.round(selectionBounds.height)} px</span><small>拖动边角缩放，拖动顶部圆柄旋转；方向键微移，Shift + 方向键移动 10 px。</small></div>:<div className="empty-state">选择一个对象以编辑属性</div>}{selectionBounds&&<div className="transform-panel"><div className="panel-heading">选择工具 · 变换</div><div className="transform-mode-row"><button className={transformMode==='free'?'active':''} onClick={()=>setTransformMode('free')}>自由变换</button><button className={transformMode==='perspective'?'active':''} onClick={()=>setTransformMode('perspective')}>透视</button><button className={transformMode==='distort'?'active':''} onClick={()=>setTransformMode('distort')}>扭曲</button></div><div className="transform-action-grid"><button onClick={()=>rotateSelection(15)}>旋转 +15°</button><button onClick={()=>rotateSelection(-15)}>旋转 -15°</button><button onClick={()=>skewSelection('x',10)}>水平斜切 10°</button><button onClick={()=>skewSelection('y',10)}>垂直斜切 10°</button><button onClick={()=>scaleSelection(-1,1)}>水平翻转</button><button onClick={()=>scaleSelection(1,-1)}>垂直翻转</button><button onClick={()=>rotateSelection(Number(window.prompt('输入旋转角度（°）','45')??'0'))}>自定义旋转…</button><button onClick={()=>skewSelection('x',Number(window.prompt('输入水平斜切角度（°）','15')??'0'))}>自定义水平斜切…</button><button onClick={()=>skewSelection('y',Number(window.prompt('输入垂直斜切角度（°）','15')??'0'))}>自定义垂直斜切…</button><button disabled title="任意网格控制点与自由变形网格尚未实现">网格变形（待实现）</button></div><small>自由变换：拖动边角缩放、顶部圆柄旋转；透视/扭曲：切换模式后拖动四角。网格变形与控制网格尚未实现。</small></div>}{selectedObjects[0]?.kind==='text'&&(()=>{const g=selectedObjects[0].geometry as {text:string;fontFamily:string;fontSize:number;fontWeight?:string;fontStyle?:string};return <div className="text-properties"><div className="panel-heading">文字属性</div><label>文字内容<input value={g.text} onChange={e=>updateSelectedText({content:e.target.value})}/></label><label>字体<input list="yutugs-font-list" value={g.fontFamily} onChange={e=>updateSelectedText({fontFamily:e.target.value})}/></label><label>字号<input type="number" min="1" value={g.fontSize} onChange={e=>updateSelectedText({fontSize:Number(e.target.value)})}/></label><label>字重<select value={g.fontWeight??'400'} onChange={e=>updateSelectedText({fontWeight:e.target.value})}><option value="300">细体</option><option value="400">常规</option><option value="500">中等</option><option value="600">半粗</option><option value="700">粗体</option><option value="900">特粗</option></select></label><label>样式<select value={g.fontStyle??'normal'} onChange={e=>updateSelectedText({fontStyle:e.target.value})}><option value="normal">常规</option><option value="italic">斜体</option></select></label><label>颜色<input type="color" value={(selectedObjects[0] as import('./core/model').VectorObject).fill??'#111111'} onChange={e=>updateSelectedText({fill:e.target.value})}/></label></div>;})()}<div className="panel-heading">路径查找器</div><div className="pathfinder-actions"><button disabled={selection.objectIds.length!==2} onClick={()=>applyBoolean('union')}>联合</button><button disabled={selection.objectIds.length!==2} onClick={()=>applyBoolean('subtract')}>减去</button><button disabled={selection.objectIds.length!==2} onClick={()=>applyBoolean('intersect')}>相交</button><button disabled={selection.objectIds.length!==2} onClick={()=>applyBoolean('exclude')}>排除</button></div><small className="pathfinder-note">当前支持矩形、椭圆和凸多边形；非凸轮廓暂不支持。</small><div className="panel-heading">画板（选择以独立编辑） <button onClick={()=>setViewAllArtboards(v=>!v)}>{viewAllArtboards?'全部显示':'仅显示当前'}</button></div>{doc.artboards.map(item=><button className={item.id===artboard.id?'layer-row artboard-row active':'layer-row artboard-row'} key={item.id} onClick={()=>{setActiveArtboardId(item.id);setSelection({objectIds:[],activeObjectId:null,artboardId:item.id});setPenPoints([]);setPenNodes([]);}}><span className="layer-icon">▧</span><span>{item.name}</span><small>{item.width} × {item.height}</small></button>)}{doc.layers.filter(layer=>artboard.layerIds.includes(layer.id)&&layer.kind==='adjustment').map(layer=>{const adjustment=doc.adjustments[layer.id]?.[0];if(!adjustment)return null;const parameters=adjustment.parameters;return <div className="adjustment-controls" key={layer.id}><b>{layer.name}</b><label>亮度 <input type="range" min="-100" max="100" value={Number(parameters.brightness??0)} onChange={e=>setHistory({type:'command',command:{type:'adjustment.update',layerId:layer.id,adjustmentId:adjustment.id,patch:{parameters:{...parameters,brightness:Number(e.target.value)}}}})}/><small>{Number(parameters.brightness??0)}</small></label><label>对比度 <input type="range" min="-100" max="100" value={Number(parameters.contrast??0)} onChange={e=>setHistory({type:'command',command:{type:'adjustment.update',layerId:layer.id,adjustmentId:adjustment.id,patch:{parameters:{...parameters,contrast:Number(e.target.value)}}}})}/><small>{Number(parameters.contrast??0)}</small></label><button onClick={()=>setHistory({type:'command',command:{type:'adjustment.update',layerId:layer.id,adjustmentId:adjustment.id,patch:{enabled:!adjustment.enabled}}})}>{adjustment.enabled?'关闭调整':'启用调整'}</button></div>;})}<div className="panel-heading">图层 / 对象</div>{doc.layers.filter(layer=>artboard.layerIds.includes(layer.id)).map(layer=><div key={layer.id}><div className="layer-row"><button className="layer-toggle" title={layer.visible?'隐藏图层':'显示图层'} onClick={()=>{setHistory({type:'command',command:{type:'layer.update',id:layer.id,patch:{visible:!layer.visible}}});if(layer.visible)setSelection(emptySelection());}}>{layer.visible?<Eye size={13}/>:<EyeOff size={13}/>}</button><button className="layer-toggle" title={layer.locked?'解锁图层':'锁定图层'} onClick={()=>{setHistory({type:'command',command:{type:'layer.update',id:layer.id,patch:{locked:!layer.locked}}});if(!layer.locked)setSelection(emptySelection());}}>{layer.locked?<Lock size={13}/>:<Unlock size={13}/>}</button><Layers3 size={15}/><span title="双击重命名图层" onDoubleClick={()=>{const name=window.prompt('图层名称',layer.name);if(name?.trim())setHistory({type:'command',command:{type:'layer.update',id:layer.id,patch:{name:name.trim()}}});}}>{layer.name}</span><small>{layer.kind}</small><input className="layer-opacity" aria-label={layer.name+' 不透明度'} type="range" min="0" max="1" step="0.05" value={layer.opacity} onChange={event=>setHistory({type:'command',command:{type:'layer.update',id:layer.id,patch:{opacity:Number(event.target.value)}}})}/></div>{layer.objectIds.map(id=>{const object=doc.objects[id];return object?<button className={selection.objectIds.includes(id)?'layer-row object-row selected':'layer-row object-row'} key={id} disabled={layer.locked || !layer.visible} onClick={()=>setSelection({objectIds:selection.objectIds.includes(id)?selection.objectIds:[...selection.objectIds,id],activeObjectId:id,artboardId:artboard.id})}><span>◇</span><span>{object.name}</span><small>{object.kind}</small></button>:null;})}</div>)}</aside>}
+      {rightOpen && <aside className="right-panel"><div className="panel-heading">属性</div>{selectionBounds?<div className="selection-info"><b>{selectedObjects.length} 个对象</b><span>X：{Math.round(selectionBounds.minX)} px</span><span>Y：{Math.round(selectionBounds.minY)} px</span><span>宽：{Math.round(selectionBounds.width)} px</span><span>高：{Math.round(selectionBounds.height)} px</span><small>拖动边角缩放，拖动顶部圆柄旋转；方向键微移，Shift + 方向键移动 10 px。</small></div>:<div className="empty-state">选择一个对象以编辑属性</div>}{selectionBounds&&<div className="transform-panel"><div className="panel-heading">选择工具 · 变换</div><div className="transform-mode-row"><button className={transformMode==='free'?'active':''} onClick={()=>setTransformMode('free')}>自由变换</button><button className={transformMode==='perspective'?'active':''} onClick={()=>setTransformMode('perspective')}>透视</button><button className={transformMode==='distort'?'active':''} onClick={()=>setTransformMode('distort')}>扭曲</button></div><div className="transform-action-grid"><button onClick={()=>rotateSelection(15)}>旋转 +15°</button><button onClick={()=>rotateSelection(-15)}>旋转 -15°</button><button onClick={()=>skewSelection('x',10)}>水平斜切 10°</button><button onClick={()=>skewSelection('y',10)}>垂直斜切 10°</button><button onClick={()=>scaleSelection(-1,1)}>水平翻转</button><button onClick={()=>scaleSelection(1,-1)}>垂直翻转</button><button onClick={()=>rotateSelection(Number(window.prompt('输入旋转角度（°）','45')??'0'))}>自定义旋转…</button><button onClick={()=>skewSelection('x',Number(window.prompt('输入水平斜切角度（°）','15')??'0'))}>自定义水平斜切…</button><button onClick={()=>skewSelection('y',Number(window.prompt('输入垂直斜切角度（°）','15')??'0'))}>自定义垂直斜切…</button><button disabled title="任意网格控制点与自由变形网格尚未实现">网格变形（待实现）</button></div><small>自由变换：拖动边角缩放、顶部圆柄旋转；透视/扭曲：切换模式后拖动四角。网格变形与控制网格尚未实现。</small></div>}{selectedObjects[0]?.kind==='text'&&(()=>{const g=selectedObjects[0].geometry as {text:string;fontFamily:string;fontSize:number;fontWeight?:string;fontStyle?:string};return <div className="text-properties"><div className="panel-heading">文字属性</div><label>文字内容<input value={g.text} onChange={e=>updateSelectedText({content:e.target.value})}/></label><label>字体<input list="yutugs-font-list" value={g.fontFamily} onChange={e=>updateSelectedText({fontFamily:e.target.value})}/></label><label>字号<input type="number" min="1" value={g.fontSize} onChange={e=>updateSelectedText({fontSize:Number(e.target.value)})}/></label><label>字重<select value={g.fontWeight??'400'} onChange={e=>updateSelectedText({fontWeight:e.target.value})}><option value="300">细体</option><option value="400">常规</option><option value="500">中等</option><option value="600">半粗</option><option value="700">粗体</option><option value="900">特粗</option></select></label><label>样式<select value={g.fontStyle??'normal'} onChange={e=>updateSelectedText({fontStyle:e.target.value})}><option value="normal">常规</option><option value="italic">斜体</option></select></label><label>颜色<input type="color" value={(selectedObjects[0] as import('./core/model').VectorObject).fill??'#111111'} onChange={e=>updateSelectedText({fill:e.target.value})}/></label></div>;})()}<div className="panel-heading">路径查找器</div><div className="pathfinder-actions"><button disabled={selection.objectIds.length!==2} onClick={()=>applyBoolean('union')}>联合</button><button disabled={selection.objectIds.length!==2} onClick={()=>applyBoolean('subtract')}>减去</button><button disabled={selection.objectIds.length!==2} onClick={()=>applyBoolean('intersect')}>相交</button><button disabled={selection.objectIds.length!==2} onClick={()=>applyBoolean('exclude')}>排除</button></div><small className="pathfinder-note">当前支持矩形、椭圆和凸多边形；非凸轮廓暂不支持。</small><div className="panel-heading">画板（选择以独立编辑） <button onClick={()=>setViewAllArtboards(v=>!v)}>{viewAllArtboards?'全部显示':'仅显示当前'}</button></div>{doc.artboards.map(item=><button className={item.id===artboard.id?'layer-row artboard-row active':'layer-row artboard-row'} key={item.id} onClick={()=>{setActiveArtboardId(item.id);setSelection({objectIds:[],activeObjectId:null,artboardId:item.id});setPenPoints([]);setPenNodes([]);}}><span className="layer-icon">▧</span><span>{item.name}</span><small>{item.width} × {item.height}</small></button>)}{artboardLayers.filter(layer=>layer.kind==='adjustment').map(layer=>{const adjustment=doc.adjustments[layer.id]?.[0];if(!adjustment)return null;const parameters=adjustment.parameters;return <div className="adjustment-controls" key={layer.id}><b>{layer.name}</b><label>亮度 <input type="range" min="-100" max="100" value={Number(parameters.brightness??0)} onChange={e=>setHistory({type:'command',command:{type:'adjustment.update',layerId:layer.id,adjustmentId:adjustment.id,patch:{parameters:{...parameters,brightness:Number(e.target.value)}}}})}/><small>{Number(parameters.brightness??0)}</small></label><label>对比度 <input type="range" min="-100" max="100" value={Number(parameters.contrast??0)} onChange={e=>setHistory({type:'command',command:{type:'adjustment.update',layerId:layer.id,adjustmentId:adjustment.id,patch:{parameters:{...parameters,contrast:Number(e.target.value)}}}})}/><small>{Number(parameters.contrast??0)}</small></label><button onClick={()=>setHistory({type:'command',command:{type:'adjustment.update',layerId:layer.id,adjustmentId:adjustment.id,patch:{enabled:!adjustment.enabled}}})}>{adjustment.enabled?'关闭调整':'启用调整'}</button></div>;})}<div className="panel-heading">图层 / 对象</div>{artboardLayers.map((layer,layerIndex)=><div key={layer.id}><div className="layer-row"><button className="layer-toggle" title={layer.visible?'隐藏图层':'显示图层'} onClick={()=>{setHistory({type:'command',command:{type:'layer.update',id:layer.id,patch:{visible:!layer.visible}}});if(layer.visible)setSelection(emptySelection());}}>{layer.visible?<Eye size={13}/>:<EyeOff size={13}/>}</button><button className="layer-toggle" title={layer.locked?'解锁图层':'锁定图层'} onClick={()=>{setHistory({type:'command',command:{type:'layer.update',id:layer.id,patch:{locked:!layer.locked}}});if(!layer.locked)setSelection(emptySelection());}}>{layer.locked?<Lock size={13}/>:<Unlock size={13}/>}</button><Layers3 size={15}/><span title="双击重命名图层" onDoubleClick={()=>{const name=window.prompt('图层名称',layer.name);if(name?.trim())setHistory({type:'command',command:{type:'layer.update',id:layer.id,patch:{name:name.trim()}}});}}>{layer.name}</span><small>{layer.kind}</small><button className="layer-toggle" title="上移图层（置于更上层）" aria-label="上移图层" disabled={layerIndex===artboardLayers.length-1} onClick={()=>setHistory({type:'command',command:{type:'layer.reorder',id:layer.id,artboardId:artboard.id,toIndex:layerIndex+1}})}>↑</button><button className="layer-toggle" title="下移图层（置于更下层）" aria-label="下移图层" disabled={layerIndex===0} onClick={()=>setHistory({type:'command',command:{type:'layer.reorder',id:layer.id,artboardId:artboard.id,toIndex:layerIndex-1}})}>↓</button><input className="layer-opacity" aria-label={layer.name+' 不透明度'} type="range" min="0" max="1" step="0.05" value={layer.opacity} onChange={event=>setHistory({type:'command',command:{type:'layer.update',id:layer.id,patch:{opacity:Number(event.target.value)}}})}/></div>{layer.objectIds.map(id=>{const object=doc.objects[id];return object?<button className={selection.objectIds.includes(id)?'layer-row object-row selected':'layer-row object-row'} key={id} disabled={layer.locked || !layer.visible} onClick={()=>setSelection({objectIds:selection.objectIds.includes(id)?selection.objectIds:[...selection.objectIds,id],activeObjectId:id,artboardId:artboard.id})}><span>◇</span><span>{object.name}</span><small>{object.kind}</small></button>:null;})}</div>)}</aside>}
     </div>
     {showPrintWorkspace && <PrintColorWorkspace svg={buildSvg()} fileName={doc.name || 'YutuGs-Photo'} onClose={()=>setShowPrintWorkspace(false)} initialSettings={doc.colorManagement ? {renderingIntent:doc.colorManagement.renderingIntent,blackPointCompensation:doc.colorManagement.blackPointCompensation,totalInkLimit:doc.colorManagement.totalInkLimit} : undefined} onProfileReady={profile=>setHistory({type:'command',command:{type:'document.colorManagement.update',patch:{outputCmykProfile:{name:profile.description,sha256:profile.sha256}}}})} onSettingsChange={settings=>setHistory({type:'command',command:{type:'document.colorManagement.update',patch:settings}})}/> }
     {showAiWorkspace && <div className="workspace-overlay"><AiWorkspace onBack={()=>setShowAiWorkspace(false)} onApply={blob=>void addAiImageAsLayer(blob)}/></div>}
@@ -431,121 +348,4 @@ export default function SvgArtboard({
     {showPackagingDialog && <div className="modal-backdrop"><section className="packaging-dialog"><header><b>新建包装模板</b><button onClick={()=>setShowPackagingDialog(false)}>关闭</button></header><label>包装类型<select value={packagingType} onChange={event=>{const type=event.target.value as BagType;setPackagingType(type);const first=packagingTemplates.find(item=>item.bagType===type);if(first)setPackagingTemplateId(first.id);}}>{(['常规编织袋','方底编织袋','常规 PE 袋'] as BagType[]).map(type=><option key={type}>{type}</option>)}</select></label><label>规格<select value={packagingTemplateId} onChange={event=>setPackagingTemplateId(event.target.value)}>{packagingTemplates.filter(item=>item.bagType===packagingType).map(item=><option key={item.id} value={item.id}>{getTemplateLabel(item)}</option>)}</select></label><label>出血量<select value={packagingBleed} onChange={event=>setPackagingBleed(Number(event.target.value))}><option value={2}>2 mm</option><option value={3}>3 mm</option><option value={5}>5 mm</option></select></label><p>按 300 DPI 换算为文档像素。此模板提供展开尺寸与 M 折参数；刀版、封边、制袋厂工艺仍需按实际生产规格校准。</p><button className="primary-action" onClick={createPackagingDocument}>创建包装画布</button></section></div>}
     <footer className="statusbar"><span>YGS v2 文档模型</span><span>SVG Renderer · 非 Canvas 2D</span><span>{doc.artboards.length} 个画板 · {doc.guides?.length ?? 0} 条参考线</span><div><button onClick={()=>setLeftOpen(v=>!v)}><PanelLeft size={14}/></button><button onClick={()=>setRightOpen(v=>!v)}><PanelRight size={14}/></button></div></footer>
   </div>;
-=======
-    
-    const list = Object.values(objects).filter(object => object.layerId === layerId && object.visible);
-    const erasers = list.filter((object): object is VectorObject => object.kind === 'path' && (object as VectorObject).compositeMode === 'erase');
-    const maskId = `eraser-mask-${artboard.id}-${layerId}`;
-    
-    layerGroups.push(
-      <g key={layerId} opacity={layer?.opacity ?? 1} mask={erasers.length ? `url(#${maskId})` : undefined}>
-        {list.filter(object => !erasers.includes(object as VectorObject)).map(object => renderObject(object, assets, previewTransforms[object.id], previewProjectives[object.id]))}
-      </g>
-    );
-  }
-  
-  const defs = <defs>
-    {artboard.layerIds.flatMap(layerId => {
-      const list = Object.values(objects).filter(object => object.layerId === layerId && object.visible);
-      const erasers = list.filter((o): o is VectorObject => o.kind === 'path' && (o as VectorObject).compositeMode === 'erase');
-      const adjustmentsForLayer = adjustments[layerId] ?? [];
-      
-      return [
-        ...(erasers.length ? [
-          <mask key={`mask-${layerId}`} id={`eraser-mask-${artboard.id}-${layerId}`} maskUnits="userSpaceOnUse" x="0" y="0" width={artboard.width} height={artboard.height}>
-            <rect width="100%" height="100%" fill="white"/>
-            {erasers.map(item => <path key={item.id} d={pathData(item.geometry)} transform={`matrix(${item.transform.join(' ')})`} stroke="black" strokeWidth={item.strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill="none"/>)}
-          </mask>
-        ] : []),
-        ...list.filter((o): o is VectorObject => o.kind !== 'image' && Boolean(o.filter)).map(o => filterMarkup(`object-filter-${o.id}`, o.filter!)),
-        ...(adjustmentsForLayer.length ? [adjustmentFilter(`adjustment-filter-${artboard.id}-${layerId}`, adjustmentsForLayer)] : [])
-      ];
-    })}
-  </defs>;
-
-  return (
-    <svg 
-      className="artboard-svg" 
-      width={artboard.width * viewport.zoom} 
-      height={artboard.height * viewport.zoom} 
-      viewBox={`0 0 ${artboard.width} ${artboard.height}`} 
-      style={{
-        left: viewport.panX + artboard.x * viewport.zoom,
-        top: viewport.panY + artboard.y * viewport.zoom,
-        background: artboard.background === 'transparent' ? 'transparent' : artboard.background,
-        outline: active ? '1px solid #8270b9' : '1px solid #596170',
-        pointerEvents: 'none'
-      }}
-    >
-      {defs}
-      <rect width={artboard.width} height={artboard.height} fill={artboard.background === 'transparent' ? 'transparent' : artboard.background}/>
-      {layerGroups}
-      
-      {packaging ? (() => {
-        const bleed = artboard.width * (packaging.bleedMm / 10) / (packaging.widthCm + packaging.bleedMm / 5),
-          trimWidth = artboard.width - bleed * 2,
-          foldX = bleed + packaging.leftMFoldCm / packaging.widthCm * trimWidth;
-        return (
-          <g pointerEvents="none">
-            <rect x={bleed} y={bleed} width={trimWidth} height={artboard.height - bleed * 2} fill="none" stroke="#d95a5a" strokeWidth={1 / viewport.zoom} strokeDasharray={`${6 / viewport.zoom} ${4 / viewport.zoom}`}/>
-            {packaging.leftMFoldCm ? (
-              <>
-                <rect x={bleed} y={bleed} width={foldX - bleed} height={artboard.height - bleed * 2} fill="#2b9bd8" opacity=".08"/>
-                <line x1={foldX} y1={bleed} x2={foldX} y2={artboard.height - bleed} stroke="#2b9bd8" strokeWidth={2 / viewport.zoom} strokeDasharray={`${8 / viewport.zoom} ${5 / viewport.zoom}`}/>
-              </>
-            ) : null}
-          </g>
-        );
-      })() : null}
-      
-      {guides.map(guide => 
-        guide.axis === 'x' 
-          ? <line key={guide.id} x1={guide.position} y1={0} x2={guide.position} y2={artboard.height} stroke="#00c8ff" strokeWidth={1 / viewport.zoom}/> 
-          : <line key={guide.id} x1={0} y1={guide.position} x2={artboard.width} y2={guide.position} stroke="#00c8ff" strokeWidth={1 / viewport.zoom}/>
-      )}
-      
-      {showGoldenGuides && (
-        <g stroke="#d4a84b" strokeWidth={1 / viewport.zoom} strokeDasharray={`${5 / viewport.zoom} ${4 / viewport.zoom}`} opacity=".8">
-          <line x1={artboard.width * .382} y1={0} x2={artboard.width * .382} y2={artboard.height}/>
-          <line x1={artboard.width * .618} y1={0} x2={artboard.width * .618} y2={artboard.height}/>
-          <line x1={0} y1={artboard.height * .382} x2={artboard.width} y2={artboard.height * .382}/>
-          <line x1={0} y1={artboard.height * .618} x2={artboard.width} y2={artboard.height * .618}/>
-        </g>
-      )}
-      
-      {active && selectionBounds && (
-        <g className="selection-overlay" pointerEvents="none">
-          <rect 
-            x={selectionBounds.minX} 
-            y={selectionBounds.minY} 
-            width={selectionBounds.maxX - selectionBounds.minX} 
-            height={selectionBounds.maxY - selectionBounds.minY} 
-            fill="none" 
-            stroke="#4c9ffe" 
-            strokeWidth={1.5 / viewport.zoom} 
-            strokeDasharray={`${5 / viewport.zoom} ${3 / viewport.zoom}`}
-          />
-          {([
-            {x: selectionBounds.minX, y: selectionBounds.minY},
-            {x: (selectionBounds.minX + selectionBounds.maxX) / 2, y: selectionBounds.minY},
-            {x: selectionBounds.maxX, y: selectionBounds.minY},
-            {x: selectionBounds.maxX, y: (selectionBounds.minY + selectionBounds.maxY) / 2},
-            {x: selectionBounds.maxX, y: selectionBounds.maxY},
-            {x: (selectionBounds.minX + selectionBounds.maxX) / 2, y: selectionBounds.maxY},
-            {x: selectionBounds.minX, y: selectionBounds.maxY},
-            {x: selectionBounds.minX, y: (selectionBounds.minY + selectionBounds.maxY) / 2}
-          ] as const).map((p, i) => (
-            <rect key={i} x={p.x - 4 / viewport.zoom} y={p.y - 4 / viewport.zoom} width={8 / viewport.zoom} height={8 / viewport.zoom} fill="#fff" stroke="#2687ef" strokeWidth={1.5 / viewport.zoom}/>
-          ))}
-          <path d={`M ${(selectionBounds.minX + selectionBounds.maxX) / 2} ${selectionBounds.minY} v ${-28 / viewport.zoom}`} stroke="#2687ef" strokeWidth={1 / viewport.zoom}/>
-          <circle cx={(selectionBounds.minX + selectionBounds.maxX) / 2} cy={selectionBounds.minY - 36 / viewport.zoom} r={5 / viewport.zoom} fill="#fff" stroke="#2687ef" strokeWidth={1.5 / viewport.zoom}/>
-        </g>
-      )}
-      
-      {active && marquee && (
-        <rect x={marquee.x} y={marquee.y} width={marquee.width} height={marquee.height} fill="#4c9ffe" fillOpacity=".12" stroke="#4c9ffe" strokeDasharray="5 3"/>
-      )}
-    </svg>
-  );
->>>>>>> 65e80f31a0cf00e5d88064b2671b80a199a7074f
 }
