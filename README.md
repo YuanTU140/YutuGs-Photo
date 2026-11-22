@@ -110,3 +110,15 @@ AI 服务位于 `local-ai-service/`，模型权重不随源码包提供。印前
 ## 完整替换说明
 
 解压后以包内 `YutuGs-Photo` 目录整体替换旧工程目录。替换前备份未提交修改。每版同步更新 README、package/Tauri 版本、变更记录、功能迁移矩阵和验证报告。
+
+## 文件格式兼容说明（1.1.14-alpha）
+
+- **YGS / SVG**：原生工程保存与矢量导入/导出。
+- **PNG / JPG / WEBP / GIF / BMP**：可作为图像对象导入；PNG/JPG 可导出。
+- **PDF**：导出单页 PDF（画板合成图像）；导入 PDF 第 1 页并栅格化为图像对象。
+- **PSD**：支持 8 位 RGB/RGBA PSD v1 合成图像的导入；导出为带透明度的单一合成层。PSD 图层、蒙版、智能对象和文字图层不保留。
+- **EPS**：可导出 EPS Level 2，内部为 RGB 位图；不提供可编辑 PostScript 矢量。仅 SVG 内容包装的 EPS 可直接作为 SVG 导入。
+- **AI**：支持 SVG 内容或 PDF 兼容 AI 的导入；PDF 兼容 AI 会栅格化为图像对象。尚未实现原生 AI 导出。
+- **CDR**：仅支持文件内实际包含 SVG 兼容内容的导入；原生 CDR 读写需要 CorelDRAW/兼容转换引擎，尚未实现。
+
+不要将 PSD/EPS 的合成图像导出误认为保留了所有原生图层或矢量语义。完整说明见 `CHANGELOG-1.1.14-alpha.md`。

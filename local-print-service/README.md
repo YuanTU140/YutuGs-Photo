@@ -40,3 +40,13 @@ uvicorn app:app --host 127.0.0.1 --port 8766
 - `POST /v1/soft-proof`: `image`, `proof_profile`, 可选 `source_profile`。
 - `POST /v1/soft-proof/svg`: `artwork` SVG 文件和 `proof_profile`，返回屏幕软打样 PNG。
 - `POST /v1/separations/svg`: `artwork` SVG 文本文件和 `output_profile`; 返回包含 CMYK TIFF、四个分色 TIFF、ICC 和报告的 ZIP。
+
+
+## YutuGs-Photo 导出对话框的 CMYK 文件输出
+
+1. 启动本服务（默认 `http://127.0.0.1:8766`）。
+2. 在 YutuGs-Photo 选择“文件 → 导出… → CMYK”。
+3. 选择印厂提供的 CMYK ICC/ICM 文件，设置 DPI、渲染意图、黑点补偿和总墨量上限。
+4. 当前服务可输出 CMYK JPG、PSD v1（单一合成层）、PDF（单页 CMYK 位图）、EPS Level 2（CMYK 位图）和 TIFF。
+
+CMYK PNG/SVG 不属于标准格式能力，应用会拒绝伪造 CMYK 文件。当前 CMYK 导出以 SVG 画板栅格化结果为输入，不保留矢量对象、多图层或可编辑文字。AI/CDR 原生编码器不包含在此服务中。

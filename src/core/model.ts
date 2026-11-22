@@ -69,7 +69,7 @@ export function createDocument(name = '未命名设计', width = 1920, height = 
   const artboardId = createId('artboard');
   const layerId = createId('layer');
   return {
-    magic: 'YGS2', schemaVersion: 2, appVersion: '1.1.13-alpha', id: createId('doc'), name,
+    magic: 'YGS2', schemaVersion: 2, appVersion: '1.1.14-alpha', id: createId('doc'), name,
     units: 'px', resolutionDpi: 300, colorMode: 'RGB',
     artboards: [{ id: artboardId, name: '画板 1', x: 0, y: 0, width, height, background: '#ffffff', layerIds: [layerId] }],
     layers: [{ id: layerId, name: '图层 1', visible: true, locked: false, opacity: 1, objectIds: [], parentId: null, blendMode: 'normal', kind: 'vector' }],
