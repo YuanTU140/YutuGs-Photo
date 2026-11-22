@@ -1,11 +1,11 @@
 # YutuGs-Photo
 
-**版本：1.1.9-alpha**  
+**版本：1.1.10-alpha**  
 **交付类型：完整源码替换包**
 
 本版本延续 alpha.4 演进代码线，以 `1.1.8-alpha` 为本轮代码基线；0.4.9 工程只作菜单、功能和交互行为对照，不作代码开发基线。每次交付均为完整源码替换包。
 
-## 1.1.9-alpha 本轮更新：图层堆栈顺序管理
+## 1.1.10-alpha 本轮更新：图层堆栈顺序管理
 
 - 图层面板新增上移/下移控制，顺序与 SVG 实际绘制堆栈一致：上移会将图层置于更高层级，下移会置于更低层级。
 - 新增 `layer.reorder` 文档命令，限定在所属画板内调整图层顺序，并纳入统一撤销/重做历史。
@@ -96,7 +96,7 @@ npm run build
 npm run tauri dev
 ```
 
-AI 服务位于 `local-ai-service/`，模型权重不随源码包提供。印前服务位于 `local-print-service/`，需独立启动。完整 React/Vite、Rust/Tauri 和 Windows 安装验证情况见 `VALIDATION-1.1.9-alpha.md`。
+AI 服务位于 `local-ai-service/`，模型权重不随源码包提供。印前服务位于 `local-print-service/`，需独立启动。完整 React/Vite、Rust/Tauri 和 Windows 安装验证情况见 `VALIDATION-1.1.10-alpha.md`。
 
 ## 尚未完成
 

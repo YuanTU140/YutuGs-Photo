@@ -201,13 +201,33 @@ describe('restored layer, guide and raster-result commands', () => {
 
 describe('editable convex vector pathfinder', () => {
   const makeRect=(id:string,x:number,y:number,w:number,h:number)=>({id,name:id,kind:'rect' as const,geometry:{x,y,width:w,height:h},transform:[1,0,0,1,0,0] as [number,number,number,number,number,number],opacity:1,visible:true,locked:false,layerId:'layer_1',fill:'#222',stroke:null,strokeWidth:0});
-  const pathArea=(geometry:import('../src/core/model').VectorPath)=>{let area=0;for(let i=0;i<geometry.nodes.length;i++){const a=geometry.nodes[i].anchor,b=geometry.nodes[(i+1)%geometry.nodes.length].anchor;area+=a.x*b.y-b.x*a.y;}return Math.abs(area/2);};
+  // A VectorPath may contain multiple closed subpaths (for example, XOR).
+  // Calculate each contour independently; connecting all nodes as one ring
+  // creates artificial edges between separate contours and corrupts area.
+  const pathArea=(geometry:import('../src/core/model').VectorPath)=>{
+    const contours:{x:number;y:number}[][]=[];
+    for(const segment of geometry.segments){
+      const point=geometry.nodes[segment.to]?.anchor;
+      if(!point)continue;
+      if(segment.type==='move')contours.push([point]);
+      else if(contours.length)contours[contours.length-1].push(point);
+    }
+    return contours.reduce((total,points)=>{
+      if(points.length<3)return total;
+      let twiceArea=0;
+      for(let i=0;i<points.length;i++){
+        const a=points[i],b=points[(i+1)%points.length];
+        twiceArea+=a.x*b.y-b.x*a.y;
+      }
+      return total+Math.abs(twiceArea/2);
+    },0);
+  };
   it('returns editable path geometry for union, subtract and intersection',()=>{
     const a=makeRect('a',0,0,100,100),b=makeRect('b',50,0,100,100);
     const union=booleanPath(a,b,'union');expect(union.nodes.length).toBe(8);
     const subtract=booleanPath(a,b,'subtract');expect(pathArea(subtract)).toBeCloseTo(5000);
     const intersect=booleanPath(a,b,'intersect');expect(pathArea(intersect)).toBeCloseTo(5000);
-    const exclude=booleanPath(a,b,'exclude');expect(pathArea(exclude)).toBeCloseTo(10000);
+    const exclude=booleanPath(a,b,'exclude');expect(exclude.segments.filter(segment=>segment.type==='move')).toHaveLength(2);expect(pathArea(exclude)).toBeCloseTo(10000);
   });
   it('rejects non-convex paths instead of silently generating incorrect geometry',()=>{
     const a=makeRect('a',0,0,10,10);const b={...makeRect('b',0,0,10,10),kind:'path' as const,geometry:{nodes:[{anchor:{x:0,y:0},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:10,y:0},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:5,y:5},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:10,y:10},inHandle:null,outHandle:null,kind:'corner' as const},{anchor:{x:0,y:10},inHandle:null,outHandle:null,kind:'corner' as const}],segments:[{type:'move' as const,to:0},{type:'line' as const,to:1},{type:'line' as const,to:2},{type:'line' as const,to:3},{type:'line' as const,to:4}],closed:true,fillRule:'nonzero' as const}};
